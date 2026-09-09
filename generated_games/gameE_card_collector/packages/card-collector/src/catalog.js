@@ -28,6 +28,12 @@ export const ECONOMY = Object.freeze({
   INCOME_INTERVAL: 1,
   /** Multiplier per duplicate level beyond 1, applied to the base income. */
   LEVEL_MULTIPLIER: 1.5,
+  /** How much the chest price rises for every chest already opened. */
+  COST_GROWTH: 0.5,
+  /** The highest the chest price may reach. */
+  COST_CAP: 30,
+  /** The highest level a card can reach; duplicates beyond it are inert. */
+  MAX_LEVEL: 5,
 });
 
 /** Per-rarity visual and economic profile, indexed by `RARITY` value. */

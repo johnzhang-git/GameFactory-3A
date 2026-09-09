@@ -74,7 +74,7 @@ export class ChestResult {
 export class CardCollectionEconomy {
   constructor(options = {}) {
     this.coins = options.coins ?? ECONOMY.STARTING_COINS;
-    this.chestCost = options.chestCost ?? ECONOMY.CHEST_COST;
+    this.baseChestCost = options.chestCost ?? ECONOMY.CHEST_COST;
     this.incomeInterval = options.incomeInterval ?? ECONOMY.INCOME_INTERVAL;
     /** @type {Map<string, CardInstance>} keyed by card name. */
     this.cards = new Map();
@@ -96,16 +96,27 @@ export class CardCollectionEconomy {
     };
   }
 
+  /**
+   * The current chest price: the base cost plus a per-opened-chest
+   * increment, capped. The cap keeps late-game chests reachable instead of
+   * letting the price outrun a finite collection's income forever.
+   */
+  currentChestCost() {
+    const grown = this.baseChestCost + this.chestsOpened * ECONOMY.COST_GROWTH;
+    return Math.min(grown, ECONOMY.COST_CAP);
+  }
+
   /** True when the player can afford one more chest. */
   canBuyChest() {
-    return this.coins >= this.chestCost;
+    return this.coins >= this.currentChestCost();
   }
 
   /** Deduct the chest price. Returns true when the purchase succeeded. */
   buyChest() {
-    if (!this.canBuyChest()) return false;
-    this.coins -= this.chestCost;
-    this.coinsSpent += this.chestCost;
+    const cost = this.currentChestCost();
+    if (this.coins < cost) return false;
+    this.coins -= cost;
+    this.coinsSpent += cost;
     this.chestsBought += 1;
     return true;
   }
@@ -141,12 +152,13 @@ export class CardCollectionEconomy {
   applyDraw(name, rarity) {
     let card = this.cards.get(name);
     const isNew = !card;
+    const isMaxed = !isNew && card.level >= ECONOMY.MAX_LEVEL;
     if (isNew) {
       card = new CardInstance(name, rarity, 1);
       this.cards.set(name, card);
       this.uniqueCards += 1;
       this._stats.totalNewCards += 1;
-    } else {
+    } else if (!isMaxed) {
       card.addDuplicate();
     }
     this.chestsOpened += 1;
@@ -190,7 +202,7 @@ export class CardCollectionEconomy {
   getState() {
     return {
       coins: this.coins,
-      chestCost: this.chestCost,
+      chestCost: this.currentChestCost(),
       chestsBought: this.chestsBought,
       chestsOpened: this.chestsOpened,
       uniqueCards: this.uniqueCards,

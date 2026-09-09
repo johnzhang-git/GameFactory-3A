@@ -56,7 +56,7 @@ function buildButtons(hudContainer) {
 }
 
 /** Push the latest game state into the HUD and the 3D stand. */
-function sync(game, hud, renderer) {
+function sync(game, hud, renderer, buttons) {
   const state = game.getState();
   const eco = state.economy;
 
@@ -66,6 +66,10 @@ function sync(game, hud, renderer) {
     'stats',
     `${eco.uniqueCards} unique / ${eco.chestsOpened} opened`,
   );
+  if (buttons) {
+    buttons.buy.textContent = `Buy Chest (${eco.chestCost})`;
+    buttons.buy.disabled = !eco.canBuyChest;
+  }
 
   const cards = state.collection;
   const listing =
@@ -149,17 +153,17 @@ export async function startCardCollector(options = {}) {
     if (result) renderer.hopChest();
   });
 
-  game.onChange(() => sync(game, hud, renderer));
+  game.onChange(() => sync(game, hud, renderer, buttons));
 
   const unsubscribe = host.onTick((delta) => {
     game.update(delta);
     renderer.update(delta);
-    sync(game, hud, renderer);
+    sync(game, hud, renderer, buttons);
   });
 
   runtime.onWorldBeginPlay();
   host.start();
-  sync(game, hud, renderer);
+  sync(game, hud, renderer, buttons);
 
   // Only the game knows its verbs; declare them so a playtest presses the
   // right keys instead of guessing.

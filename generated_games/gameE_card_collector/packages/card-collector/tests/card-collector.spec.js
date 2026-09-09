@@ -109,6 +109,23 @@ describe('CardCollectionEconomy', () => {
     expect(eco.coinsSpent).toBe(ECONOMY.CHEST_COST);
   });
 
+  it('raises the chest price per chest opened, up to the cap', () => {
+    const eco = new CardCollectionEconomy({ coins: 9999 });
+    expect(eco.currentChestCost()).toBe(ECONOMY.CHEST_COST);
+    for (let i = 0; i < 10; i += 1) {
+      eco.chestsOpened = i;
+    }
+    // After 40 opened chests the price should have grown…
+    eco.chestsOpened = 40;
+    const grown = ECONOMY.CHEST_COST + 40 * ECONOMY.COST_GROWTH;
+    expect(eco.currentChestCost()).toBe(
+      Math.min(grown, ECONOMY.COST_CAP),
+    );
+    // …and never exceed the cap.
+    eco.chestsOpened = 1000;
+    expect(eco.currentChestCost()).toBe(ECONOMY.COST_CAP);
+  });
+
   it('a new draw creates a card and a duplicate levels it up', () => {
     const eco = new CardCollectionEconomy();
     const first = eco.applyDraw('Dragon', RARITY.EPIC);
@@ -130,6 +147,15 @@ describe('CardCollectionEconomy', () => {
     eco.applyDraw('Elder Wyrm', RARITY.LEGENDARY);
     const level2 = eco.incomePerTick();
     expect(level2).toBeGreaterThan(level1);
+  });
+
+  it('caps a card at the max level', () => {
+    const eco = new CardCollectionEconomy();
+    for (let i = 0; i < ECONOMY.MAX_LEVEL + 3; i += 1) {
+      eco.applyDraw('Slime', RARITY.COMMON);
+    }
+    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+    expect(eco.cards.get('Slime').copies).toBe(ECONOMY.MAX_LEVEL);
   });
 
   it('mints coins at the fixed interval and tracks them', () => {
