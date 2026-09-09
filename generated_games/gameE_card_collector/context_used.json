@@ -1,0 +1,22 @@
+{
+  "schema": "gamefactory3a.context_used.v1",
+  "engine": "three_js",
+  "engine_api": "agent_skills/engine_context/three_js_api.md",
+  "examples": [
+    {
+      "path": "engine_adapters/three_js/examples/explorer-example/src/index.js",
+      "role": "mechanic_example",
+      "purpose": "bootA3GameRuntime wiring, HUD usage, input router + onTick loop"
+    },
+    {
+      "path": "engine_adapters/three_js/examples/explorer-example/tests/explorer-example.spec.js",
+      "role": "mechanic_example",
+      "purpose": "headless vitest pattern: host double, explicit delta, observable state assertions"
+    },
+    {
+      "path": "engine_adapters/three_js/examples/explorer-example/package.json",
+      "role": "mechanic_example",
+      "purpose": "gameplay package descriptor shape and @a3game/playable dependency"
+    }
+  ]
+}

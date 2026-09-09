@@ -1,0 +1,157 @@
+/**
+ * The card catalogue: every collectible card, its rarity, and its economy.
+ *
+ * This module is deliberately free of three.js and the DOM, so it can be
+ * imported and stepped by a headless `vitest` run. It owns the *rules* of
+ * collection — what a card is, how rare it is, and what it earns — and
+ * nothing about how any of that is drawn.
+ *
+ * The core loop is: buy a chest for COIN, open it to draw a card, hold
+ * cards that periodically mint coins, spend those coins on more chests.
+ * Duplicate draws upgrade the card, and each level multiplies its income.
+ */
+
+/** Rarity tiers, worst to best. Lower tiers are drawn more often. */
+export const RARITY = Object.freeze({
+  COMMON: 'common',
+  UNCOMMON: 'uncommon',
+  RARE: 'rare',
+  EPIC: 'epic',
+  LEGENDARY: 'legendary',
+});
+
+/** The economy: costs and income live here so UI and tests share one truth. */
+export const ECONOMY = Object.freeze({
+  CHEST_COST: 10,
+  STARTING_COINS: 20,
+  /** Seconds between each passive income tick of the whole collection. */
+  INCOME_INTERVAL: 1,
+  /** Multiplier per duplicate level beyond 1, applied to the base income. */
+  LEVEL_MULTIPLIER: 1.5,
+});
+
+/** Per-rarity visual and economic profile, indexed by `RARITY` value. */
+export const RARITY_PROFILE = Object.freeze({
+  [RARITY.COMMON]: {
+    baseIncome: 1,
+    color: 0x9aa3ad,
+    label: 'Common',
+    weight: 50,
+  },
+  [RARITY.UNCOMMON]: {
+    baseIncome: 2,
+    color: 0x4ade80,
+    label: 'Uncommon',
+    weight: 28,
+  },
+  [RARITY.RARE]: {
+    baseIncome: 4,
+    color: 0x38bdf8,
+    label: 'Rare',
+    weight: 15,
+  },
+  [RARITY.EPIC]: {
+    baseIncome: 8,
+    color: 0xc084fc,
+    label: 'Epic',
+    weight: 6,
+  },
+  [RARITY.LEGENDARY]: {
+    baseIncome: 20,
+    color: 0xfbbf24,
+    label: 'Legendary',
+    weight: 1,
+  },
+});
+
+/** The ordered list of rarities that a chest can roll. */
+export const RARITY_ORDER = Object.freeze([
+  RARITY.COMMON,
+  RARITY.UNCOMMON,
+  RARITY.RARE,
+  RARITY.EPIC,
+  RARITY.LEGENDARY,
+]);
+
+const TOTAL_WEIGHT = RARITY_ORDER.reduce(
+  (sum, rarity) => sum + RARITY_PROFILE[rarity].weight,
+  0,
+);
+
+/** The card names a chest can draw, keyed by rarity. */
+export const CARD_POOL = Object.freeze({
+  [RARITY.COMMON]: ['Slime', 'Goblin', 'Bat', 'Rat', 'Frog', 'Chick'],
+  [RARITY.UNCOMMON]: ['Wolf', 'Boar', 'Hawk', 'Serpent', 'Fox'],
+  [RARITY.RARE]: ['Golem', 'Gryphon', 'Treant', 'Lich'],
+  [RARITY.EPIC]: ['Dragon', 'Phoenix', 'Kraken'],
+  [RARITY.LEGENDARY]: ['Elder Wyrm'],
+});
+
+/**
+ * A deterministic pseudo-random stream. Passed in by callers so a chest
+ * draw is reproducible: the game passes one number stream per run, and
+ * tests pass a fixed seed.
+ *
+ * @param {number} seed
+ */
+export function createSeededRandom(seed = 1) {
+  let state = seed >>> 0;
+  if (state === 0) state = 0x6d2b79f5;
+  return function next() {
+    // Mulberry32 — good enough for a loot roll, and identical everywhere.
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Roll a rarity for a chest draw.
+ *
+ * @param {() => number} random a `[0,1)` generator
+ * @returns {string} a `RARITY` value
+ */
+export function rollRarity(random) {
+  const roll = random() * TOTAL_WEIGHT;
+  let cumulative = 0;
+  for (const rarity of RARITY_ORDER) {
+    cumulative += RARITY_PROFILE[rarity].weight;
+    if (roll < cumulative) return rarity;
+  }
+  return RARITY.COMMON;
+}
+
+/**
+ * Pick a card identity for a drawn rarity.
+ *
+ * @param {() => number} random
+ * @param {string} rarity
+ * @returns {string} a card name from `CARD_POOL`
+ */
+export function pickCardName(random, rarity) {
+  const pool = CARD_POOL[rarity];
+  const index = Math.min(
+    pool.length - 1,
+    Math.floor(random() * pool.length),
+  );
+  return pool[index];
+}
+
+/**
+ * The per-level income of a card. Level 1 is the base; each level beyond
+ * multiplies it, then the result is floored so coins stay whole.
+ *
+ * @param {string} rarity
+ * @param {number} level
+ */
+export function cardIncome(rarity, level) {
+  const base = RARITY_PROFILE[rarity].baseIncome;
+  return Math.floor(base * Math.pow(ECONOMY.LEVEL_MULTIPLIER, level - 1));
+}
+
+/** A human-readable card id from a name. */
+export function cardIdFromName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}

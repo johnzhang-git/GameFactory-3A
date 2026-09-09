@@ -1,0 +1,23 @@
+{
+  "name": "@a3game/card-collector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Card-collector idle game: buy chests, draw cards, earn coins over time.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "@a3game/playable": "file:./packages/a3game-playable"
+  },
+  "peerDependencies": {
+    "three": ">=0.170.0"
+  },
+  "a3game": {
+    "kind": "gameplay_package",
+    "engine": "three_js",
+    "genre": "card_collector",
+    "api_version": "v1"
+  }
+}

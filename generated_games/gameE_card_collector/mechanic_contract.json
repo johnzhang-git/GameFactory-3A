@@ -1,0 +1,37 @@
+{
+  "schema": "gamefactory3a.mechanic_contract.v1",
+  "contract_version": 1,
+  "gameplay_module": "@a3game/card-collector",
+  "engine": "three_js",
+  "state": {
+    "phase": "string — current lifecycle phase (idle | opening)",
+    "economy.coins": "number — coins held",
+    "economy.chestCost": "number — price of one chest",
+    "economy.chestsBought": "number — chests purchased",
+    "economy.chestsOpened": "number — chests opened",
+    "economy.uniqueCards": "number — distinct cards collected",
+    "economy.totalCards": "number — total card instances",
+    "economy.incomePerTick": "number — coins minted per income tick",
+    "economy.canBuyChest": "boolean — whether a chest is affordable",
+    "lastResult": "object|null — the most recent chest draw {name, rarity, isNew, levelAfter, incomePerTick}",
+    "collection": "array — owned cards sorted by rarity then level, each {name, rarity, level, copies, incomePerTick}"
+  },
+  "events": [
+    "change — emitted whenever the economy or collection changes (subscribe via game.onChange)",
+    "chest_bought — a chest was purchased (coincides with change)",
+    "chest_opened — a chest was opened and a card drawn (coincides with change)",
+    "income_minted — passive income was added (coincides with change)"
+  ],
+  "commands": [
+    "buyChest — deduct chestCost coins and add one chest; returns boolean success",
+    "openChest — roll a rarity and card, apply to collection; returns ChestResult|null",
+    "update(deltaSeconds) — advance the economy and mint income; returns coins minted",
+    "getState — read the full observable state"
+  ],
+  "public_api_paths": [
+    "packages/card-collector/src/index.js",
+    "packages/card-collector/src/game.js",
+    "packages/card-collector/src/economy.js",
+    "packages/card-collector/src/catalog.js"
+  ]
+}
