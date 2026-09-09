@@ -70,6 +70,19 @@ describe('catalog', () => {
     const level2 = cardIncome(RARITY.LEGENDARY, 2);
     expect(level2).toBeGreaterThan(legendary);
   });
+
+  it('gains at least one coin per level, at every rarity', () => {
+    // The floor of `base * mult^(lvl-1)` eats low-rarity upgrades (a
+    // common card stays at 1 from Lv1 to Lv2). This is the regression
+    // guard: no upgrade may ever read as dead.
+    for (const rarity of RARITY_ORDER) {
+      for (let level = 1; level <= 8; level += 1) {
+        expect(cardIncome(rarity, level + 1)).toBeGreaterThan(
+          cardIncome(rarity, level),
+        );
+      }
+    }
+  });
 });
 
 describe('CardCollectionEconomy', () => {

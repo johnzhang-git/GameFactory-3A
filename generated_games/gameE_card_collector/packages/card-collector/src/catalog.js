@@ -140,15 +140,22 @@ export function pickCardName(random, rarity) {
 }
 
 /**
- * The per-level income of a card. Level 1 is the base; each level beyond
- * multiplies it, then the result is floored so coins stay whole.
+ * The per-level income of a card, in whole coins per income tick.
+ *
+ * Level 1 is the base. Higher levels scale by `LEVEL_MULTIPLIER`, but a
+ * straight `floor(base * mult^(level-1))` eats low-rarity upgrades — a
+ * common card at base 1 goes `floor(1 * 1.5) = 1`, so level 2 earns the
+ * same as level 1 and the upgrade reads as dead. The linear floor
+ * `base + (level - 1)` guarantees every level gains at least one coin,
+ * while higher-rarity cards keep their exponential growth.
  *
  * @param {string} rarity
  * @param {number} level
  */
 export function cardIncome(rarity, level) {
   const base = RARITY_PROFILE[rarity].baseIncome;
-  return Math.floor(base * Math.pow(ECONOMY.LEVEL_MULTIPLIER, level - 1));
+  const exponential = base * Math.pow(ECONOMY.LEVEL_MULTIPLIER, level - 1);
+  return Math.max(base + (level - 1), Math.floor(exponential));
 }
 
 /** A human-readable card id from a name. */
