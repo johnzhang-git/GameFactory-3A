@@ -14,6 +14,7 @@
 import {
   ECONOMY,
   cardIncome,
+  levelForCopies,
 } from './catalog.js';
 
 /** A collected card: identity plus how many duplicates have been drawn. */
@@ -21,20 +22,23 @@ export class CardInstance {
   /**
    * @param {string} name
    * @param {string} rarity
-   * @param {number} [level]
+   * @param {number} [copies]
    */
-  constructor(name, rarity, level = 1) {
+  constructor(name, rarity, copies = 1) {
     this.name = name;
     this.rarity = rarity;
-    this.level = level;
     /** How many times the chest has drawn this card (including the first). */
-    this.copies = level;
+    this.copies = copies;
   }
 
-  /** Upgrade by one duplicate and report whether it levelled up. */
+  /** Upgrade by one duplicate. */
   addDuplicate() {
     this.copies += 1;
-    this.level += 1;
+  }
+
+  /** The card's level, derived from how many copies it has. */
+  get level() {
+    return levelForCopies(this.copies);
   }
 
   /** Income per income-tick at the current level. */

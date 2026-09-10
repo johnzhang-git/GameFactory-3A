@@ -34,6 +34,12 @@ export const ECONOMY = Object.freeze({
   COST_CAP: 30,
   /** The highest level a card can reach; duplicates beyond it are inert. */
   MAX_LEVEL: 5,
+  /**
+   * Copies (including the first) needed to reach each level, indexed by
+   * level - 1. Geometric: a card needs 1, 2, 4, 8, then 16 copies to go
+   * from Lv1 to Lv5, so the last level costs far more than the first.
+   */
+  LEVEL_COPY_THRESHOLDS: Object.freeze([1, 2, 4, 8, 16]),
 });
 
 /** Per-rarity visual and economic profile, indexed by `RARITY` value. */
@@ -143,6 +149,27 @@ export function pickCardName(random, rarity) {
     Math.floor(random() * pool.length),
   );
   return pool[index];
+}
+
+/**
+ * The level a card has reached for a given number of copies.
+ *
+ * A card with 1 copy is Lv1; the next copy does not always level it up.
+ * Each level needs `LEVEL_COPY_THRESHOLDS[level - 1]` copies, so going
+ * Lv4 -> Lv5 needs 16 copies while Lv1 -> Lv2 needs only 2. This is what
+ * makes the collection's long-term goal ("max every card") far deeper than
+ * the short-term goal ("collect one of each") without touching income.
+ *
+ * @param {number} copies including the first
+ * @returns {number} a level in [1, MAX_LEVEL]
+ */
+export function levelForCopies(copies) {
+  const thresholds = ECONOMY.LEVEL_COPY_THRESHOLDS;
+  let level = 1;
+  for (let i = 0; i < thresholds.length; i += 1) {
+    if (copies >= thresholds[i]) level = i + 1;
+  }
+  return level;
 }
 
 /**

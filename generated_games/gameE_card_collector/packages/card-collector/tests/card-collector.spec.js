@@ -20,6 +20,7 @@ import {
   RARITY_PROFILE,
   cardIncome,
   createSeededRandom,
+  levelForCopies,
   pickCardName,
   rollRarity,
 } from '../src/catalog.js';
@@ -82,6 +83,17 @@ describe('catalog', () => {
         );
       }
     }
+  });
+
+  it('maps copies to level via geometric thresholds', () => {
+    // levelForCopies is the long-term-depth lever: Lv5 needs 16 copies,
+    // so "max every card" is far deeper than "collect one of each".
+    expect(levelForCopies(1)).toBe(1);
+    expect(levelForCopies(2)).toBe(2);
+    expect(levelForCopies(4)).toBe(3);
+    expect(levelForCopies(8)).toBe(4);
+    expect(levelForCopies(16)).toBe(5);
+    expect(levelForCopies(1000)).toBe(5); // capped
   });
 });
 
@@ -149,13 +161,18 @@ describe('CardCollectionEconomy', () => {
     expect(level2).toBeGreaterThan(level1);
   });
 
-  it('caps a card at the max level', () => {
+  it('derives level from copies and caps at the max level', () => {
     const eco = new CardCollectionEconomy();
-    for (let i = 0; i < ECONOMY.MAX_LEVEL + 3; i += 1) {
+    // Geometric thresholds: Lv1..Lv5 need 1,2,4,8,16 copies.
+    const maxCopies = ECONOMY.LEVEL_COPY_THRESHOLDS[ECONOMY.MAX_LEVEL - 1];
+    for (let i = 0; i < maxCopies; i += 1) {
       eco.applyDraw('Slime', RARITY.COMMON);
     }
+    expect(eco.cards.get('Slime').copies).toBe(maxCopies);
     expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
-    expect(eco.cards.get('Slime').copies).toBe(ECONOMY.MAX_LEVEL);
+    // Extra duplicates beyond the cap do not raise the level further.
+    eco.applyDraw('Slime', RARITY.COMMON);
+    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
   });
 
   it('mints coins at the fixed interval and tracks them', () => {
