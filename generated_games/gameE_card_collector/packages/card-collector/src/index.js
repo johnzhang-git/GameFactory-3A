@@ -85,12 +85,14 @@ function sync(game, hud, renderer, buttons) {
   hud.setValue('collection', `Collection\n${listing}`);
 
   if (state.lastResult) {
-    const { name, rarity, isNew, levelAfter } = state.lastResult;
+    const { name, rarity, isNew, levelAfter, coinsAwarded } = state.lastResult;
     hud.setValue(
       'result',
-      isNew
-        ? `NEW! ${name} (${rarity})`
-        : `${name} → Lv.${levelAfter}`,
+      coinsAwarded > 0
+        ? `${name} MAXED → +${coinsAwarded} coins`
+        : isNew
+          ? `NEW! ${name} (${rarity})`
+          : `${name} → Lv.${levelAfter}`,
     );
     hud.setVisible('result', true);
   }

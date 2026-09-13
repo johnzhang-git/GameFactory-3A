@@ -15,6 +15,7 @@ import {
   ECONOMY,
   cardIncome,
   levelForCopies,
+  maxedDuplicateCoins,
 } from './catalog.js';
 
 /** A collected card: identity plus how many duplicates have been drawn. */
@@ -55,13 +56,15 @@ export class ChestResult {
    * @param {boolean} isNew
    * @param {number} levelAfter
    * @param {number} incomePerTick
+   * @param {number} [coinsAwarded] coin refunded when this was a maxed duplicate
    */
-  constructor(name, rarity, isNew, levelAfter, incomePerTick) {
+  constructor(name, rarity, isNew, levelAfter, incomePerTick, coinsAwarded = 0) {
     this.name = name;
     this.rarity = rarity;
     this.isNew = isNew;
     this.levelAfter = levelAfter;
     this.incomePerTick = incomePerTick;
+    this.coinsAwarded = coinsAwarded;
   }
 
   toJSON() {
@@ -71,6 +74,7 @@ export class ChestResult {
       isNew: this.isNew,
       levelAfter: this.levelAfter,
       incomePerTick: this.incomePerTick,
+      coinsAwarded: this.coinsAwarded,
     };
   }
 }
@@ -157,6 +161,7 @@ export class CardCollectionEconomy {
     let card = this.cards.get(name);
     const isNew = !card;
     const isMaxed = !isNew && card.level >= ECONOMY.MAX_LEVEL;
+    let coinsAwarded = 0;
     if (isNew) {
       card = new CardInstance(name, rarity, 1);
       this.cards.set(name, card);
@@ -164,6 +169,10 @@ export class CardCollectionEconomy {
       this._stats.totalNewCards += 1;
     } else if (!isMaxed) {
       card.addDuplicate();
+    } else {
+      // A maxed card cannot level further, so refund the duplicate as coin.
+      coinsAwarded = maxedDuplicateCoins(rarity);
+      this.coins += coinsAwarded;
     }
     this.chestsOpened += 1;
     this._stats.totalDraws += 1;
@@ -173,6 +182,7 @@ export class CardCollectionEconomy {
       isNew,
       card.level,
       card.incomePerTick(),
+      coinsAwarded,
     );
   }
 

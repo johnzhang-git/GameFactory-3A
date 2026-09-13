@@ -21,6 +21,7 @@ import {
   cardIncome,
   createSeededRandom,
   levelForCopies,
+  maxedDuplicateCoins,
   pickCardName,
   rollRarity,
 } from '../src/catalog.js';
@@ -94,6 +95,18 @@ describe('catalog', () => {
     expect(levelForCopies(8)).toBe(4);
     expect(levelForCopies(16)).toBe(5);
     expect(levelForCopies(1000)).toBe(5); // capped
+  });
+
+  it('refunds maxed duplicates scaled by rarity', () => {
+    // A maxed common refunds 1 * multiplier, a maxed legendary 20 * multiplier.
+    expect(maxedDuplicateCoins(RARITY.COMMON)).toBe(
+      RARITY_PROFILE[RARITY.COMMON].baseIncome *
+        ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER,
+    );
+    expect(maxedDuplicateCoins(RARITY.LEGENDARY)).toBe(
+      RARITY_PROFILE[RARITY.LEGENDARY].baseIncome *
+        ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER,
+    );
   });
 });
 
@@ -173,6 +186,21 @@ describe('CardCollectionEconomy', () => {
     // Extra duplicates beyond the cap do not raise the level further.
     eco.applyDraw('Slime', RARITY.COMMON);
     expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+  });
+
+  it('refunds a duplicate of a maxed card as coin', () => {
+    const eco = new CardCollectionEconomy({ coins: 0 });
+    const maxCopies = ECONOMY.LEVEL_COPY_THRESHOLDS[ECONOMY.MAX_LEVEL - 1];
+    for (let i = 0; i < maxCopies; i += 1) {
+      eco.applyDraw('Slime', RARITY.COMMON);
+    }
+    const coinsBefore = eco.coins;
+    const result = eco.applyDraw('Slime', RARITY.COMMON);
+    expect(result.coinsAwarded).toBe(maxedDuplicateCoins(RARITY.COMMON));
+    expect(eco.coins).toBe(coinsBefore + maxedDuplicateCoins(RARITY.COMMON));
+    // The card stays capped, but the refunded coins are not passive income.
+    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+    expect(eco.coinsEarned).toBe(0);
   });
 
   it('mints coins at the fixed interval and tracks them', () => {

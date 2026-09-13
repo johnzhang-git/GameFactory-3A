@@ -40,6 +40,12 @@ export const ECONOMY = Object.freeze({
    * from Lv1 to Lv5, so the last level costs far more than the first.
    */
   LEVEL_COPY_THRESHOLDS: Object.freeze([1, 2, 4, 8, 16]),
+  /**
+   * Coins refunded for drawing a duplicate of an already-maxed card, as a
+   * multiple of that card's `baseIncome`. A maxed card has no upgrade left,
+   * so its duplicates are converted to coin instead of being inert.
+   */
+  MAXED_DUPLICATE_COIN_MULTIPLIER: 3,
 });
 
 /** Per-rarity visual and economic profile, indexed by `RARITY` value. */
@@ -189,6 +195,22 @@ export function cardIncome(rarity, level) {
   const base = RARITY_PROFILE[rarity].baseIncome;
   const exponential = base * Math.pow(ECONOMY.LEVEL_MULTIPLIER, level - 1);
   return Math.max(base + (level - 1), Math.floor(exponential));
+}
+
+/**
+ * Coins refunded for drawing a duplicate of an already-maxed card.
+ *
+ * A card at `MAX_LEVEL` cannot level up again, so a further duplicate would
+ * otherwise be silently inert. It is instead refunded as coin scaled by the
+ * card's rarity, which keeps late-game draws meaningful.
+ *
+ * @param {string} rarity
+ * @returns {number} whole coins
+ */
+export function maxedDuplicateCoins(rarity) {
+  return (
+    RARITY_PROFILE[rarity].baseIncome * ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER
+  );
 }
 
 /** A human-readable card id from a name. */

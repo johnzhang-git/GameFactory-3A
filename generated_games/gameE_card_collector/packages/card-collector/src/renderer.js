@@ -81,6 +81,23 @@ function buildCardTexture(name, rarity) {
   return texture;
 }
 
+/**
+ * Card faces are deterministic per (name, rarity), so their textures are
+ * cached. Rebuilding a canvas and re-uploading every frame would leak GPU
+ * memory and burn the render loop on a wall that rarely changes.
+ */
+const cardTextureCache = new Map();
+
+function getCardTexture(name, rarity) {
+  const key = `${rarity}:${name}`;
+  let texture = cardTextureCache.get(key);
+  if (!texture) {
+    texture = buildCardTexture(name, rarity);
+    cardTextureCache.set(key, texture);
+  }
+  return texture;
+}
+
 function buildChest() {
   const group = new THREE.Group();
   group.name = 'chest';
@@ -157,7 +174,7 @@ class CardWall {
 
   #fill(slot, card) {
     let mesh = slot.userData.mesh;
-    const texture = buildCardTexture(card.name, card.rarity);
+    const texture = getCardTexture(card.name, card.rarity);
     if (mesh) {
       mesh.material.map = texture;
       mesh.material.needsUpdate = true;
@@ -268,11 +285,15 @@ export class CardCollectorRenderer {
           ? object.material
           : [object.material];
         for (const material of materials) {
-          if (material.map) material.map.dispose();
           material.dispose();
         }
       }
     });
+    // Card faces are shared across meshes via the cache; dispose them once.
+    for (const texture of cardTextureCache.values()) {
+      texture.dispose();
+    }
+    cardTextureCache.clear();
   }
 }
 
