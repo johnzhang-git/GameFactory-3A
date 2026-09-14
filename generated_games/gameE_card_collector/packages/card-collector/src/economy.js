@@ -14,6 +14,7 @@
 import {
   ECONOMY,
   cardIncome,
+  chestCostAt,
   levelForCopies,
   maxedDuplicateCoins,
 } from './catalog.js';
@@ -110,8 +111,7 @@ export class CardCollectionEconomy {
    * letting the price outrun a finite collection's income forever.
    */
   currentChestCost() {
-    const grown = this.baseChestCost + this.chestsOpened * ECONOMY.COST_GROWTH;
-    return Math.min(grown, ECONOMY.COST_CAP);
+    return chestCostAt(this._stats.totalIncome, this.baseChestCost);
   }
 
   /** True when the player can afford one more chest. */

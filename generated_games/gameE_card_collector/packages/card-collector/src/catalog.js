@@ -28,10 +28,12 @@ export const ECONOMY = Object.freeze({
   INCOME_INTERVAL: 1,
   /** Multiplier per duplicate level beyond 1, applied to the base income. */
   LEVEL_MULTIPLIER: 1.5,
-  /** How much the chest price rises for every chest already opened. */
-  COST_GROWTH: 0.5,
-  /** The highest the chest price may reach. */
-  COST_CAP: 30,
+  /**
+   * Lifetime passive income per one-coin chest-price rise. Uncapped, so the
+   * price eventually outruns even a maxed collection's income — the signal
+   * to prestige. Tuned for a ~30-minute first run.
+   */
+  COST_SCALE: 1000,
   /** The highest level a card can reach; duplicates beyond it are inert. */
   MAX_LEVEL: 5,
   /**
@@ -211,6 +213,22 @@ export function maxedDuplicateCoins(rarity) {
   return (
     RARITY_PROFILE[rarity].baseIncome * ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER
   );
+}
+
+/**
+ * The chest price as lifetime passive income grows.
+ *
+ * Uncapped linear growth: every `COST_SCALE` coins of lifetime income raise
+ * the price by one. Early on income is tiny, so the price barely moves; once
+ * the collection nears its income ceiling the price keeps climbing and
+ * eventually outruns it — the signal to prestige.
+ *
+ * @param {number} totalIncome lifetime passive income
+ * @param {number} [base] starting chest price
+ * @returns {number} whole coins
+ */
+export function chestCostAt(totalIncome, base = ECONOMY.CHEST_COST) {
+  return base + Math.floor(totalIncome / ECONOMY.COST_SCALE);
 }
 
 /** A human-readable card id from a name. */

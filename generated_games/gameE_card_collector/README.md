@@ -14,6 +14,7 @@
 - 5 档稀有度（Common → Legendary），权重掉落，稀有度越高产币越多。
 - 抽到重复卡累计副本数，按 1/2/4/8/16 阈值升级，收入随等级 ×1.5。
 - 已满级卡再抽到重复，转为按稀有度折算的金币（基础收入 ×3）。
+- 宝箱价格随累计产出线性上涨（每 1000 累计收入 +1），无封顶，最终倒逼转生。经济设计详见 [DESIGN.md](./DESIGN.md)。
 
 ## 技术说明
 
@@ -28,6 +29,7 @@ gameE_card_collector/
 ├── src/main.js                  # 宿主入口：导入 gameplay 包并启动
 ├── mechanic_contract.json       # 公共 Mechanic 契约（state / events / commands）
 ├── context_used.json            # 使用的上下文记录
+├── DESIGN.md                    # 经济设计：成本曲线与转生方案
 └── packages/card-collector/     # 生成的 gameplay 包
     ├── package.json
     ├── src/
@@ -37,7 +39,7 @@ gameE_card_collector/
     │   ├── renderer.js          # 3D 展台（宝箱弹跳 + 卡牌墙）
     │   └── index.js             # 启动、HUD、按键 / 按钮输入
     └── tests/
-        └── card-collector.spec.js   # 26 个 vitest 用例覆盖核心循环
+        └── card-collector.spec.js   # 27 个 vitest 用例覆盖核心循环
 ```
 
 ## 运行
@@ -51,6 +53,6 @@ npm run dev   # 打开 http://127.0.0.1:5173/
 
 ## 验证证据
 
-- 46 个测试通过（26 个游戏逻辑 + 20 个框架方向契约）。
+- 47 个测试通过（27 个游戏逻辑 + 20 个框架方向契约）。
 - `vite build` 成功。
 - 无头浏览器 playtest 录像跑通完整循环（买箱 → 开箱抽卡 → 产币），证据见完整项目下的 `.a3game/playtest/`。

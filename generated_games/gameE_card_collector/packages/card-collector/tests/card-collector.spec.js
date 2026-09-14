@@ -19,6 +19,7 @@ import {
   RARITY_ORDER,
   RARITY_PROFILE,
   cardIncome,
+  chestCostAt,
   createSeededRandom,
   levelForCopies,
   maxedDuplicateCoins,
@@ -108,6 +109,17 @@ describe('catalog', () => {
         ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER,
     );
   });
+
+  it('computes chest cost from lifetime income, uncapped', () => {
+    // Price rises one coin per COST_SCALE lifetime income and never caps:
+    // 400x scale is far past the old cap, proving the ceiling is gone.
+    expect(chestCostAt(0)).toBe(ECONOMY.CHEST_COST);
+    expect(chestCostAt(ECONOMY.COST_SCALE - 1)).toBe(ECONOMY.CHEST_COST);
+    expect(chestCostAt(ECONOMY.COST_SCALE)).toBe(ECONOMY.CHEST_COST + 1);
+    expect(chestCostAt(ECONOMY.COST_SCALE * 400)).toBe(
+      ECONOMY.CHEST_COST + 400,
+    );
+  });
 });
 
 describe('CardCollectionEconomy', () => {
@@ -134,21 +146,14 @@ describe('CardCollectionEconomy', () => {
     expect(eco.coinsSpent).toBe(ECONOMY.CHEST_COST);
   });
 
-  it('raises the chest price per chest opened, up to the cap', () => {
-    const eco = new CardCollectionEconomy({ coins: 9999 });
+  it('raises the chest price with lifetime income, uncapped', () => {
+    const eco = new CardCollectionEconomy({ coins: 0 });
     expect(eco.currentChestCost()).toBe(ECONOMY.CHEST_COST);
-    for (let i = 0; i < 10; i += 1) {
-      eco.chestsOpened = i;
-    }
-    // After 40 opened chests the price should have grown…
-    eco.chestsOpened = 40;
-    const grown = ECONOMY.CHEST_COST + 40 * ECONOMY.COST_GROWTH;
-    expect(eco.currentChestCost()).toBe(
-      Math.min(grown, ECONOMY.COST_CAP),
-    );
-    // …and never exceed the cap.
-    eco.chestsOpened = 1000;
-    expect(eco.currentChestCost()).toBe(ECONOMY.COST_CAP);
+    // Lifetime income drives the price up one coin per COST_SCALE, with no
+    // cap, so it eventually outruns a maxed collection's income.
+    eco.applyDraw('Slime', RARITY.COMMON); // +1 per tick
+    eco.update(ECONOMY.INCOME_INTERVAL * ECONOMY.COST_SCALE);
+    expect(eco.currentChestCost()).toBe(ECONOMY.CHEST_COST + 1);
   });
 
   it('a new draw creates a card and a duplicate levels it up', () => {
