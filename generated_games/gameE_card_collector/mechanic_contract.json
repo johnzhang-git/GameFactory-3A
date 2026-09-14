@@ -13,6 +13,11 @@
     "economy.totalCards": "number — total card instances",
     "economy.incomePerTick": "number — coins minted per income tick",
     "economy.canBuyChest": "boolean — whether a chest is affordable",
+    "economy.prestige": "number — cumulative prestige points banked across resets",
+    "economy.prestigeGain": "number — prestige points the current run would grant",
+    "economy.goldChestCost": "number — price of a gold chest",
+    "economy.goldChestUnlocked": "boolean — whether prestige has unlocked the gold chest",
+    "economy.canBuyGoldChest": "boolean — whether a gold chest is unlocked and affordable",
     "lastResult": "object|null — the most recent chest draw {name, rarity, isNew, levelAfter, incomePerTick, coinsAwarded}",
     "collection": "array — owned cards sorted by rarity then level, each {name, rarity, level, copies, incomePerTick}"
   },
@@ -24,7 +29,10 @@
   ],
   "commands": [
     "buyChest — deduct chestCost coins and add one chest; returns boolean success",
-    "openChest — roll a rarity and card, apply to collection; returns ChestResult|null",
+    "buyGoldChest — deduct goldChestCost coins and add a gold chest; returns boolean success",
+    "openChest — roll a rarity and card from the unlocked pool; returns ChestResult|null",
+    "openGoldChest — roll from a rare-or-better pool; returns ChestResult|null",
+    "prestige — reset the run, bank prestige points; returns points granted",
     "update(deltaSeconds) — advance the economy and mint income; returns coins minted",
     "getState — read the full observable state"
   ],

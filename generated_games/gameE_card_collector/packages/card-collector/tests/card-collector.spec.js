@@ -15,15 +15,20 @@ import { describe, expect, it } from 'vitest';
 import {
   CARD_POOL,
   ECONOMY,
+  PRESTIGE,
   RARITY,
   RARITY_ORDER,
   RARITY_PROFILE,
+  RARITY_RANK,
+  availableRarities,
   cardIncome,
   chestCostAt,
   createSeededRandom,
+  goldChestPool,
   levelForCopies,
   maxedDuplicateCoins,
   pickCardName,
+  prestigeGain,
   rollRarity,
 } from '../src/catalog.js';
 import {
@@ -119,6 +124,35 @@ describe('catalog', () => {
     expect(chestCostAt(ECONOMY.COST_SCALE * 400)).toBe(
       ECONOMY.CHEST_COST + 400,
     );
+  });
+
+  it('unlocks rarities as prestige accumulates', () => {
+    // Base pool has the five classic tiers only.
+    expect(availableRarities(0)).toEqual(RARITY_ORDER);
+    // Each unlock adds its rarity once the threshold is crossed.
+    expect(availableRarities(3)).toContain(RARITY.MYTHIC);
+    expect(availableRarities(3)).not.toContain(RARITY.ANCIENT);
+    expect(availableRarities(10)).toContain(RARITY.ANCIENT);
+    expect(availableRarities(20)).toContain(RARITY.ASTRAL);
+  });
+
+  it('builds a gold-chest pool of rare-or-better tiers', () => {
+    const pool = goldChestPool(PRESTIGE.RARITY_UNLOCKS[0].prestige);
+    // Only tiers at or above rare appear, and none below it.
+    for (const rarity of pool) {
+      expect(RARITY_RANK[rarity]).toBeGreaterThanOrEqual(
+        RARITY_RANK[RARITY.RARE],
+      );
+    }
+    expect(pool).not.toContain(RARITY.COMMON);
+    expect(pool).not.toContain(RARITY.UNCOMMON);
+  });
+
+  it('converts lifetime income to prestige points', () => {
+    expect(prestigeGain(0)).toBe(0);
+    expect(prestigeGain(PRESTIGE.PER_POINT - 1)).toBe(0);
+    expect(prestigeGain(PRESTIGE.PER_POINT)).toBe(1);
+    expect(prestigeGain(PRESTIGE.PER_POINT * 5 + 99)).toBe(5);
   });
 });
 
@@ -242,6 +276,41 @@ describe('CardCollectionEconomy', () => {
     expect(roundTripped.coins).toBe(snapshot.coins);
     expect(roundTripped.totalCards).toBe(1);
   });
+
+  it('locks the gold chest until enough prestige', () => {
+    const eco = new CardCollectionEconomy({ coins: 9999 });
+    expect(eco.isGoldChestUnlocked()).toBe(false);
+    expect(eco.canBuyGoldChest()).toBe(false);
+    expect(eco.buyGoldChest()).toBe(false);
+    // Unlock it by banking prestige, then it is affordable.
+    eco.prestige = PRESTIGE.GOLD_CHEST_AT;
+    expect(eco.isGoldChestUnlocked()).toBe(true);
+    expect(eco.buyGoldChest()).toBe(true);
+  });
+
+  it('charges the gold chest a fixed multiple of the normal chest', () => {
+    const eco = new CardCollectionEconomy({ coins: 9999 });
+    eco.prestige = PRESTIGE.GOLD_CHEST_AT;
+    const before = eco.coins;
+    expect(eco.buyGoldChest()).toBe(true);
+    expect(eco.coins).toBe(
+      before - ECONOMY.CHEST_COST * ECONOMY.GOLD_CHEST_MULTIPLIER,
+    );
+  });
+
+  it('prestige resets the run but banks points', () => {
+    const eco = new CardCollectionEconomy();
+    eco.applyDraw('Slime', RARITY.COMMON); // +1 per tick
+    eco.update(ECONOMY.INCOME_INTERVAL * PRESTIGE.PER_POINT * 3);
+    const gain = eco.prestigeReset();
+    expect(gain).toBe(3);
+    expect(eco.prestige).toBe(3);
+    // The run resets: collection, coins, lifetime income all cleared.
+    expect(eco.cards.size).toBe(0);
+    expect(eco.coins).toBe(ECONOMY.STARTING_COINS);
+    expect(eco.getState().totalIncome).toBe(0);
+    expect(eco.currentChestCost()).toBe(ECONOMY.CHEST_COST);
+  });
 });
 
 describe('CardInstance', () => {
@@ -310,5 +379,28 @@ describe('CardCollectorGame', () => {
     expect(game.getState().economy.uniqueCards).toBeGreaterThanOrEqual(
       uniqueBefore,
     );
+  });
+
+  it('opens a gold chest from a rare-or-better pool', () => {
+    const game = new CardCollectorGame({ seed: 4 });
+    game.economy.prestige = PRESTIGE.GOLD_CHEST_AT;
+    game.economy.coins = 9999;
+    expect(game.buyGoldChest()).toBe(true);
+    const result = game.openGoldChest();
+    expect(result).not.toBeNull();
+    expect(RARITY_RANK[result.rarity]).toBeGreaterThanOrEqual(
+      RARITY_RANK[RARITY.RARE],
+    );
+  });
+
+  it('prestiges through the game command and resets state', () => {
+    const game = new CardCollectorGame({ seed: 6 });
+    game.economy.applyDraw('Slime', RARITY.COMMON);
+    game.economy.update(ECONOMY.INCOME_INTERVAL * PRESTIGE.PER_POINT * 2);
+    const gain = game.prestige();
+    expect(gain).toBe(2);
+    expect(game.getState().economy.prestige).toBe(2);
+    expect(game.getState().economy.uniqueCards).toBe(0);
+    expect(game.getState().phase).toBe(GAME_PHASE.IDLE);
   });
 });

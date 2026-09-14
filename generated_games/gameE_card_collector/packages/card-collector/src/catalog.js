@@ -18,6 +18,9 @@ export const RARITY = Object.freeze({
   RARE: 'rare',
   EPIC: 'epic',
   LEGENDARY: 'legendary',
+  MYTHIC: 'mythic',
+  ANCIENT: 'ancient',
+  ASTRAL: 'astral',
 });
 
 /** The economy: costs and income live here so UI and tests share one truth. */
@@ -48,6 +51,26 @@ export const ECONOMY = Object.freeze({
    * so its duplicates are converted to coin instead of being inert.
    */
   MAXED_DUPLICATE_COIN_MULTIPLIER: 3,
+  /** A gold chest costs this multiple of the normal chest price. */
+  GOLD_CHEST_MULTIPLIER: 3,
+});
+
+/**
+ * Prestige (reset) rules. Unlockable rarities enter every chest's draw pool
+ * once their cumulative prestige threshold is reached; the gold chest is a
+ * premium draw with a rare-or-better floor.
+ */
+export const PRESTIGE = Object.freeze({
+  /** Lifetime income per prestige point, granted when the run is reset. */
+  PER_POINT: 50000,
+  /** Cumulative prestige needed to unlock the gold chest. */
+  GOLD_CHEST_AT: 5,
+  /** Rarities that enter the draw pool at each prestige threshold. */
+  RARITY_UNLOCKS: Object.freeze([
+    { rarity: RARITY.MYTHIC, prestige: 3 },
+    { rarity: RARITY.ANCIENT, prestige: 10 },
+    { rarity: RARITY.ASTRAL, prestige: 20 },
+  ]),
 });
 
 /** Per-rarity visual and economic profile, indexed by `RARITY` value. */
@@ -82,9 +105,27 @@ export const RARITY_PROFILE = Object.freeze({
     label: 'Legendary',
     weight: 1,
   },
+  [RARITY.MYTHIC]: {
+    baseIncome: 40,
+    color: 0xff5c8a,
+    label: 'Mythic',
+    weight: 0.6,
+  },
+  [RARITY.ANCIENT]: {
+    baseIncome: 80,
+    color: 0x9b5cff,
+    label: 'Ancient',
+    weight: 0.25,
+  },
+  [RARITY.ASTRAL]: {
+    baseIncome: 150,
+    color: 0x7dffd4,
+    label: 'Astral',
+    weight: 0.1,
+  },
 });
 
-/** The ordered list of rarities that a chest can roll. */
+/** The base rarities a chest can roll before any prestige unlocks. */
 export const RARITY_ORDER = Object.freeze([
   RARITY.COMMON,
   RARITY.UNCOMMON,
@@ -93,10 +134,17 @@ export const RARITY_ORDER = Object.freeze([
   RARITY.LEGENDARY,
 ]);
 
-const TOTAL_WEIGHT = RARITY_ORDER.reduce(
-  (sum, rarity) => sum + RARITY_PROFILE[rarity].weight,
-  0,
-);
+/** Rarity rank, worst to best, for ordering and the gold chest's floor. */
+export const RARITY_RANK = Object.freeze({
+  [RARITY.COMMON]: 0,
+  [RARITY.UNCOMMON]: 1,
+  [RARITY.RARE]: 2,
+  [RARITY.EPIC]: 3,
+  [RARITY.LEGENDARY]: 4,
+  [RARITY.MYTHIC]: 5,
+  [RARITY.ANCIENT]: 6,
+  [RARITY.ASTRAL]: 7,
+});
 
 /** The card names a chest can draw, keyed by rarity. */
 export const CARD_POOL = Object.freeze({
@@ -105,6 +153,9 @@ export const CARD_POOL = Object.freeze({
   [RARITY.RARE]: ['Golem', 'Gryphon', 'Treant', 'Lich'],
   [RARITY.EPIC]: ['Dragon', 'Phoenix', 'Kraken'],
   [RARITY.LEGENDARY]: ['Elder Wyrm'],
+  [RARITY.MYTHIC]: ['Titan', 'Eidolon'],
+  [RARITY.ANCIENT]: ['Primordial', 'Leviathan'],
+  [RARITY.ASTRAL]: ['Celestial', 'Voidspawn'],
 });
 
 /**
@@ -133,14 +184,18 @@ export function createSeededRandom(seed = 1) {
  * @param {() => number} random a `[0,1)` generator
  * @returns {string} a `RARITY` value
  */
-export function rollRarity(random) {
-  const roll = random() * TOTAL_WEIGHT;
+export function rollRarity(random, pool = RARITY_ORDER) {
+  const total = pool.reduce(
+    (sum, rarity) => sum + RARITY_PROFILE[rarity].weight,
+    0,
+  );
+  const roll = random() * total;
   let cumulative = 0;
-  for (const rarity of RARITY_ORDER) {
+  for (const rarity of pool) {
     cumulative += RARITY_PROFILE[rarity].weight;
     if (roll < cumulative) return rarity;
   }
-  return RARITY.COMMON;
+  return pool[0];
 }
 
 /**
@@ -229,6 +284,45 @@ export function maxedDuplicateCoins(rarity) {
  */
 export function chestCostAt(totalIncome, base = ECONOMY.CHEST_COST) {
   return base + Math.floor(totalIncome / ECONOMY.COST_SCALE);
+}
+
+/**
+ * The rarities available to a chest draw at a given prestige.
+ *
+ * The base five rarities are always present; each unlockable rarity joins
+ * the pool once the cumulative prestige reaches its threshold.
+ *
+ * @param {number} prestige cumulative prestige points
+ * @returns {string[]} a `RARITY` value per available tier
+ */
+export function availableRarities(prestige) {
+  const pool = [...RARITY_ORDER];
+  for (const { rarity, prestige: required } of PRESTIGE.RARITY_UNLOCKS) {
+    if (prestige >= required) pool.push(rarity);
+  }
+  return pool;
+}
+
+/**
+ * The gold chest's draw pool: every available rarity at or above rare.
+ *
+ * @param {number} prestige cumulative prestige points
+ * @returns {string[]} a `RARITY` value per available rare-or-better tier
+ */
+export function goldChestPool(prestige) {
+  return availableRarities(prestige).filter(
+    (rarity) => RARITY_RANK[rarity] >= RARITY_RANK[RARITY.RARE],
+  );
+}
+
+/**
+ * The prestige points a run grants from lifetime income, before reset.
+ *
+ * @param {number} totalIncome lifetime passive income
+ * @returns {number} whole prestige points
+ */
+export function prestigeGain(totalIncome) {
+  return Math.floor(totalIncome / PRESTIGE.PER_POINT);
 }
 
 /** A human-readable card id from a name. */

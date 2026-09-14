@@ -1,6 +1,6 @@
 # 卡牌收集游戏 · 经济设计
 
-> 状态：**成本曲线已实现**；**转生为设计存档，尚未落地**。本文档记录「提前通关」问题的诊断与解法演进。
+> 状态：**成本曲线已实现 ✅**；**转生闭环已实现 ✅**（新卡池 + 黄金宝箱 + 手动转生）。本文档记录「提前通关」问题的诊断与解法演进。
 
 ## 1. 问题诊断
 
@@ -37,33 +37,35 @@ cost = CHEST_COST + floor(totalIncome / COST_SCALE)
 
 参数：`COST_SCALE = 1000`，目标第一轮 **~30 分钟**。
 
-## 4. 转生：解锁新内容（待实现 ⏳）
+## 4. 转生：解锁新内容（已实现 ✅）
 
 转生收益不采用「全局 +% 收入」，而是**解锁新卡池 / 高级宝箱**，与收集主题契合。收入上限的抬高靠「解锁更高 base 的卡」，而非数值系数。
 
 ### 4.1 声望 P
 
 ```
-P_gain = floor(totalIncome / PRESTIGE_PER_POINT)
+P_gain = floor(totalIncome / PER_POINT)
 ```
 
-转生动作：清空收藏、金币、`chestsOpened`（成本复位）、`totalIncome`；保留并累计 `P`。
+转生动作（手动触发）：清空收藏、金币、`chestsOpened`、`totalIncome`（成本复位）；保留并累计 `P`。方法 `economy.prestigeReset()` / `game.prestige()`。
 
 ### 4.2 解锁表（P 为跨轮次累计值）
 
 | 累计 P | 解锁 |
 |---|---|
-| 3 | 「神话 Mythic」卡池（base 40） |
-| 5 | 「黄金宝箱」：更贵，保底 rare+ 或抬权重 |
-| 10 | 「远古 Ancient」卡池（base 80） |
-| 20 | 「星灵 Astral」卡池（base 150） |
+| 3 | 「神话 Mythic」卡池（base 40，weight 0.6） |
+| 5 | 「黄金宝箱」：价格 = 普通箱 ×3，保底 rare+ |
+| 10 | 「远古 Ancient」卡池（base 80，weight 0.25） |
+| 20 | 「星灵 Astral」卡池（base 150，weight 0.1） |
+
+新解锁的稀有度**混入所有宝箱**的掉落池（`availableRarities`），黄金宝箱用 `goldChestPool`（rare 及以上）。
 
 每轮解锁更强卡 → 收入上限抬高 → 走得更远 → 更多 P → 更多解锁。
 
-### 4.3 待定参数
+### 4.3 交互
 
-- `PRESTIGE_PER_POINT = 50000`（第一轮 ~30 分钟 → P ≈ 7，够解锁第一个卡池）。
-- 转生触发点：当「买下一箱」的边际时间超过阈值（如 15 秒），玩家自然想转生。
+- 手动转生按钮 + `KeyP`；转生前 HUD 显示可获声望 `(+N next)`。
+- 黄金宝箱按钮 + `KeyG`；未解锁时置灰，显示 `Gold Chest (locked)`。
 
 ## 5. 闭环示意
 
@@ -83,6 +85,8 @@ flowchart TD
 | 参数 | 取值 | 说明 |
 |---|---|---|
 | `COST_SCALE` | 1000 | 每 1000 累计收入，成本 +1；~30 分钟一轮 |
-| `PRESTIGE_PER_POINT` | 50000 | 转生时每 50000 累计收入换 1 P（待实现） |
+| `PER_POINT` | 50000 | 转生时每 50000 累计收入换 1 P |
+| `GOLD_CHEST_MULTIPLIER` | 3 | 黄金宝箱价格 = 普通箱 ×3 |
+| `GOLD_CHEST_AT` | 5 | 解锁黄金宝箱所需累计 P |
 
 > 以上参数均为估算，最终需靠 playtest 校准节奏。

@@ -10,7 +10,9 @@
 
 import {
   ECONOMY,
+  availableRarities,
   createSeededRandom,
+  goldChestPool,
   pickCardName,
   rollRarity,
 } from './catalog.js';
@@ -62,21 +64,53 @@ export class CardCollectorGame {
     return true;
   }
 
+  /** Buy a gold chest if unlocked and affordable. Returns true on success. */
+  buyGoldChest() {
+    if (!this.economy.buyGoldChest()) return false;
+    this._emit();
+    return true;
+  }
+
   /**
    * Open an owned chest: roll a rarity and a card, then apply it.
    *
-   * A chest must be bought (or seeded) first; a zero-cost open would let
-   * the player farm cards for nothing.
+   * The draw pool is every rarity unlocked at the current prestige.
    *
    * @returns {import('./economy.js').ChestResult | null}
    */
   openChest() {
-    const rarity = rollRarity(this.random);
+    return this._open(availableRarities(this.economy.prestige));
+  }
+
+  /**
+   * Open a gold chest: same as `openChest`, but the draw pool is every
+   * unlocked rarity at or above rare.
+   *
+   * @returns {import('./economy.js').ChestResult | null}
+   */
+  openGoldChest() {
+    return this._open(goldChestPool(this.economy.prestige));
+  }
+
+  /** Roll against `pool`, apply the draw, and notify listeners. */
+  _open(pool) {
+    const rarity = rollRarity(this.random, pool);
     const name = pickCardName(this.random, rarity);
     this.lastResult = this.economy.applyDraw(name, rarity);
     this.phase = GAME_PHASE.IDLE;
     this._emit();
     return this.lastResult;
+  }
+
+  /**
+   * Reset the run for prestige, banking the run's lifetime income as points.
+   * Returns the prestige points granted.
+   */
+  prestige() {
+    const gain = this.economy.prestigeReset();
+    this.phase = GAME_PHASE.IDLE;
+    this._emit();
+    return gain;
   }
 
   /**

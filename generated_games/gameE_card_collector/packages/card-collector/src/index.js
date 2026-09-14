@@ -51,8 +51,10 @@ function buildButtons(hudContainer) {
 
   const buy = make('Buy Chest (10)', 'buy_chest');
   const open = make('Open Chest', 'open_chest');
+  const gold = make('Gold Chest', 'buy_gold_chest');
+  const prestige = make('Prestige', 'prestige');
   hudContainer.appendChild(bar);
-  return { bar, buy, open };
+  return { bar, buy, open, gold, prestige };
 }
 
 /** Push the latest game state into the HUD and the 3D stand. */
@@ -66,9 +68,19 @@ function sync(game, hud, renderer, buttons) {
     'stats',
     `${eco.uniqueCards} unique / ${eco.chestsOpened} opened`,
   );
+  hud.setValue(
+    'prestige',
+    `Prestige ${eco.prestige} (+${eco.prestigeGain} next)`,
+  );
   if (buttons) {
     buttons.buy.textContent = `Buy Chest (${eco.chestCost})`;
     buttons.buy.disabled = !eco.canBuyChest;
+    buttons.gold.textContent = eco.goldChestUnlocked
+      ? `Gold Chest (${eco.goldChestCost})`
+      : 'Gold Chest (locked)';
+    buttons.gold.disabled = !eco.canBuyGoldChest;
+    buttons.prestige.textContent = `Prestige (+${eco.prestigeGain})`;
+    buttons.prestige.disabled = eco.prestigeGain <= 0;
   }
 
   const cards = state.collection;
@@ -129,6 +141,7 @@ export async function startCardCollector(options = {}) {
   hud.addText('coins', { anchor: 'top-left', value: 'Coins 0' });
   hud.addText('income', { anchor: 'top-left', value: 'Income +0/s' });
   hud.addText('stats', { anchor: 'top-left', value: '0 unique / 0 opened' });
+  hud.addText('prestige', { anchor: 'top-left', value: 'Prestige 0 (+0 next)' });
   hud.addPanel('collection', { anchor: 'top-right', value: 'Collection' });
   hud.addBanner('result', { anchor: 'center', value: '', visible: false });
 
@@ -137,19 +150,30 @@ export async function startCardCollector(options = {}) {
   const input = new A3GameInputRouter({
     target: host.container,
     lookMode: A3GameLookMode.DRAG,
-    actionBindings: { KeyB: 'buy_chest', Space: 'open_chest' },
+    actionBindings: {
+      KeyB: 'buy_chest',
+      Space: 'open_chest',
+      KeyG: 'buy_gold_chest',
+      KeyP: 'prestige',
+    },
   }).enable();
   input.onAction((action, phase) => {
     if (phase !== 'pressed') return;
     if (action === 'buy_chest') {
       game.buyChest();
+    } else if (action === 'buy_gold_chest') {
+      game.buyGoldChest();
     } else if (action === 'open_chest') {
       const result = game.openChest();
       if (result) renderer.hopChest();
+    } else if (action === 'prestige') {
+      game.prestige();
     }
   });
 
   buttons.buy.addEventListener('click', () => game.buyChest());
+  buttons.gold.addEventListener('click', () => game.buyGoldChest());
+  buttons.prestige.addEventListener('click', () => game.prestige());
   buttons.open.addEventListener('click', () => {
     const result = game.openChest();
     if (result) renderer.hopChest();

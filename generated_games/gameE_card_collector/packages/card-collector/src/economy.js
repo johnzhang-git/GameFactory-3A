@@ -13,10 +13,13 @@
 
 import {
   ECONOMY,
+  PRESTIGE,
+  RARITY_RANK,
   cardIncome,
   chestCostAt,
   levelForCopies,
   maxedDuplicateCoins,
+  prestigeGain,
 } from './catalog.js';
 
 /** A collected card: identity plus how many duplicates have been drawn. */
@@ -85,6 +88,8 @@ export class CardCollectionEconomy {
     this.coins = options.coins ?? ECONOMY.STARTING_COINS;
     this.baseChestCost = options.chestCost ?? ECONOMY.CHEST_COST;
     this.incomeInterval = options.incomeInterval ?? ECONOMY.INCOME_INTERVAL;
+    /** Cumulative prestige points banked across resets. */
+    this.prestige = options.prestige ?? 0;
     /** @type {Map<string, CardInstance>} keyed by card name. */
     this.cards = new Map();
     /** Chests purchased since the run began. */
@@ -129,6 +134,63 @@ export class CardCollectionEconomy {
     return true;
   }
 
+  /** The gold chest price: the normal chest price times a fixed multiple. */
+  goldChestCost() {
+    return this.currentChestCost() * ECONOMY.GOLD_CHEST_MULTIPLIER;
+  }
+
+  /** True once the gold chest has been unlocked by prestige. */
+  isGoldChestUnlocked() {
+    return this.prestige >= PRESTIGE.GOLD_CHEST_AT;
+  }
+
+  /** True when the gold chest is unlocked and affordable. */
+  canBuyGoldChest() {
+    return this.isGoldChestUnlocked() && this.coins >= this.goldChestCost();
+  }
+
+  /**
+   * Buy a gold chest. Fails unless it is unlocked and affordable. Returns
+   * true on success.
+   */
+  buyGoldChest() {
+    if (!this.isGoldChestUnlocked()) return false;
+    const cost = this.goldChestCost();
+    if (this.coins < cost) return false;
+    this.coins -= cost;
+    this.coinsSpent += cost;
+    this.chestsBought += 1;
+    return true;
+  }
+
+  /**
+   * The prestige points the current run would grant, based on lifetime
+   * income. Reading this does not reset anything.
+   */
+  prestigeGain() {
+    return prestigeGain(this._stats.totalIncome);
+  }
+
+  /**
+   * Reset the run for prestige: bank the current run's prestige points,
+   * then clear the collection, coins, counters, and lifetime income. Returns
+   * the points granted.
+   */
+  prestigeReset() {
+    const gain = this.prestigeGain();
+    this.prestige += gain;
+    this.cards.clear();
+    this.coins = ECONOMY.STARTING_COINS;
+    this.chestsBought = 0;
+    this.chestsOpened = 0;
+    this.uniqueCards = 0;
+    this.coinsEarned = 0;
+    this.coinsSpent = 0;
+    this._incomeAccumulator = 0;
+    this._stats = { totalIncome: 0, totalDraws: 0, totalNewCards: 0 };
+    return gain;
+  }
+
   /** Current income per tick summed across every owned card. */
   incomePerTick() {
     let total = 0;
@@ -140,8 +202,7 @@ export class CardCollectionEconomy {
 
   /** Cards ordered for display: rarity desc, then level desc, then name. */
   collectionList() {
-    const rarityRank = (rarity) =>
-      ['common', 'uncommon', 'rare', 'epic', 'legendary'].indexOf(rarity);
+    const rarityRank = (rarity) => RARITY_RANK[rarity] ?? -1;
     return [...this.cards.values()].sort((a, b) => {
       const rarity = rarityRank(b.rarity) - rarityRank(a.rarity);
       if (rarity !== 0) return rarity;
@@ -228,6 +289,11 @@ export class CardCollectionEconomy {
       totalDraws: this._stats.totalDraws,
       totalNewCards: this._stats.totalNewCards,
       canBuyChest: this.canBuyChest(),
+      prestige: this.prestige,
+      prestigeGain: this.prestigeGain(),
+      goldChestCost: this.goldChestCost(),
+      goldChestUnlocked: this.isGoldChestUnlocked(),
+      canBuyGoldChest: this.canBuyGoldChest(),
     };
   }
 }
