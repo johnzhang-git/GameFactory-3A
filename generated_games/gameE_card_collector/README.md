@@ -51,6 +51,13 @@ gameE_card_collector/
         └── card-collector.spec.js   # 35 个 vitest 用例覆盖核心循环
 ```
 
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [DESIGN.md](./DESIGN.md) | 经济设计、参数校准实测（§7-§10） |
+| [docs/web3-integration.md](./docs/web3-integration.md) | **Web3 集成方案**：惰性铸造 + ERC-1155 最小实现，含成本明细 |
+
 ## 数值校准
 
 经济参数不靠手感猜，用模拟器实测。该脚本不依赖 three.js / 浏览器，直接跑：
