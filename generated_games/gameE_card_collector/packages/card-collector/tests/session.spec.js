@@ -313,6 +313,144 @@ describe('ServerSession', () => {
     expect(spy).toHaveBeenCalled();
   });
 
+  describe('claiming to a wallet', () => {
+    /** A voucher response with `count` cards, shaped like the server's. */
+    function vouchers(count, { chainId = 31337 } = {}) {
+      return {
+        chainId,
+        contractAddress: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+        signer: '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199',
+        vouchers: Array.from({ length: count }, (_, i) => ({
+          to: '0xabc',
+          tokenId: i,
+          amount: i + 1,
+          nonce: `${1000 + i}`,
+          deadline: 9999999999,
+          signature: '0xsig',
+          card: { name: `Card${i}`, rarity: 'common' },
+          claimable: i + 1,
+          transaction: { to: '0xcontract', data: `0xdata${i}`, value: '0x0' },
+        })),
+      };
+    }
+
+    /** A session whose server offers `count` vouchers. */
+    function claimSession(count, extraRoutes = {}) {
+      const sent = [];
+      const session = makeSession({
+        '/chain/vouchers': () => ({ body: vouchers(count) }),
+        '/chain/claimed': ({ body }) => ({ body: { ok: true, ...body } }),
+        '/chain/claimable': () => ({
+          body: {
+            available: true,
+            reason: null,
+            cards: [
+              { tokenId: 0, name: 'Slime', copies: 3, claimed: 1, claimable: 2 },
+            ],
+          },
+        }),
+        ...extraRoutes,
+      });
+      return { session, sent };
+    }
+
+    it('reports what is claimable', async () => {
+      const { session } = claimSession(1);
+      const info = await session.claimable();
+      expect(info.available).toBe(true);
+      expect(info.cards[0].claimable).toBe(2);
+    });
+
+    it('sends each voucher and reports each success back', async () => {
+      const reported = [];
+      const { session } = claimSession(2, {
+        '/chain/claimed': ({ body }) => {
+          reported.push(body);
+          return { body: { ok: true, ...body } };
+        },
+      });
+      const sent = [];
+
+      const outcome = await session.claimAll({
+        ensureChain: async () => true,
+        sendTransaction: async (tx) => {
+          sent.push(tx.data);
+          return `0xhash${sent.length}`;
+        },
+      });
+
+      expect(outcome.failed).toBeNull();
+      expect(sent).toEqual(['0xdata0', '0xdata1']);
+      expect(outcome.claimed).toHaveLength(2);
+      // The server must be told, or the next claim re-signs what was minted.
+      expect(reported).toEqual([
+        { tokenId: 0, amount: 1 },
+        { tokenId: 1, amount: 2 },
+      ]);
+    });
+
+    it('switches chain before sending anything', async () => {
+      // Ordering matters: a transaction on the wrong chain would either fail
+      // or, worse, hit a same-address contract on another network.
+      const { session } = claimSession(1);
+      const order = [];
+
+      await session.claimAll({
+        ensureChain: async (chainId) => {
+          order.push(`chain:${chainId}`);
+          return true;
+        },
+        sendTransaction: async () => {
+          order.push('send');
+          return '0xhash';
+        },
+      });
+
+      expect(order).toEqual(['chain:31337', 'send']);
+    });
+
+    it('stops at the first declined prompt instead of re-prompting', async () => {
+      const { session } = claimSession(3);
+      let attempts = 0;
+
+      const outcome = await session.claimAll({
+        ensureChain: async () => true,
+        sendTransaction: async () => {
+          attempts += 1;
+          if (attempts === 2) throw new Error('Request declined in your wallet.');
+          return '0xhash';
+        },
+      });
+
+      // The first card minted, the second was declined, and the third was
+      // never attempted — prompting again after a refusal is user-hostile.
+      expect(attempts).toBe(2);
+      expect(outcome.claimed).toHaveLength(1);
+      expect(outcome.failed).toMatchObject({ name: 'Card1' });
+      expect(outcome.reason).toMatch(/declined/);
+    });
+
+    it('does nothing when there is nothing to claim', async () => {
+      const { session } = claimSession(0);
+      let prompted = false;
+
+      const outcome = await session.claimAll({
+        ensureChain: async () => {
+          prompted = true;
+          return true;
+        },
+        sendTransaction: async () => {
+          prompted = true;
+          return '0xhash';
+        },
+      });
+
+      // No chain switch, no wallet prompt — just a no-op.
+      expect(prompted).toBe(false);
+      expect(outcome.reason).toBe('nothing to claim');
+    });
+  });
+
   it('reports a failed connect without throwing', async () => {
     const session = makeSession();
     const connector = async () => {

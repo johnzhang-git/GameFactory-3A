@@ -19,7 +19,13 @@
 import { GameApiClient } from './api-client.js';
 import { CardCollectionEconomy, ChestResult } from './economy.js';
 import { CardCollectorGame } from './game.js';
-import { connectAndSignIn, connectWallet, WalletError } from './wallet.js';
+import {
+  connectAndSignIn,
+  connectWallet,
+  ensureChain,
+  sendTransaction,
+  WalletError,
+} from './wallet.js';
 
 /**
  * Replace a live game's state with a server snapshot, keeping subscribers.
@@ -265,6 +271,74 @@ export class ServerSession {
   getState() {
     return this.game.getState();
   }
+
+  // --- on-chain claiming --------------------------------------------------
+
+  /**
+   * What the player can still mint.
+   *
+   * @returns {Promise<{available: boolean, reason: string|null, cards: object[]}>}
+   */
+  async claimable() {
+    return this.api.claimable();
+  }
+
+  /**
+   * Claim every card the player has drawn but not yet minted.
+   *
+   * Per card: ask the server to sign a voucher, send it through the wallet
+   * (the player pays that gas), then report success so the next claim tops up
+   * from the new total rather than re-signing what is already held.
+   *
+   * A voucher that the player declines in the wallet stops the run — continuing
+   * would fire a prompt per remaining card, which is worse than asking again
+   * later. Everything minted before that point is already recorded.
+   *
+   * @param {{ensureChain?: Function, sendTransaction?: Function}} [hooks]
+   *   injected for testing; default to the real wallet calls
+   * @returns {Promise<{claimed: object[], failed: object|null, reason: string|null}>}
+   */
+  async claimAll(hooks = {}) {
+    const ensure = hooks.ensureChain ?? ensureChain;
+    const send = hooks.sendTransaction ?? sendTransaction;
+
+    this.error = null;
+    const issued = await this.api.vouchers();
+
+    if (!issued.vouchers?.length) {
+      return { claimed: [], failed: null, reason: 'nothing to claim' };
+    }
+
+    // One prompt, before any transaction, rather than one per card.
+    await ensure(issued.chainId);
+
+    const claimed = [];
+    for (const voucher of issued.vouchers) {
+      try {
+        const hash = await send(voucher.transaction, this.address);
+        await this.api.reportClaimed(voucher.tokenId, voucher.amount);
+        claimed.push({
+          name: voucher.card.name,
+          tokenId: voucher.tokenId,
+          amount: voucher.claimable,
+          hash,
+        });
+      } catch (error) {
+        // Stop on the first failure: a declined prompt is a decision, and
+        // retrying the rest would just re-prompt for each one.
+        this.error = error.message;
+        this._emit();
+        return {
+          claimed,
+          failed: { name: voucher.card.name, tokenId: voucher.tokenId },
+          reason: error.message,
+        };
+      }
+    }
+
+    this._emit();
+    return { claimed, failed: null, reason: null };
+  }
 }
 
-export { connectWallet };
+export { connectAndSignIn, connectWallet, ensureChain, sendTransaction };

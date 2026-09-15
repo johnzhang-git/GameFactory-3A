@@ -191,4 +191,31 @@ export class GameApiClient {
   tick(seconds) {
     return this.request('/game/tick', { body: { seconds } });
   }
+
+  // --- on-chain claiming --------------------------------------------------
+
+  /**
+   * What the player holds and how much of it is still unminted.
+   *
+   * Answers even when the server has no chain configured, so the UI can show
+   * the real reason rather than hiding the feature.
+   */
+  claimable() {
+    return this.request('/chain/claimable', { method: 'GET' });
+  }
+
+  /**
+   * Signed vouchers, each with ready-to-send transaction calldata.
+   *
+   * The client never encodes ABI calls; it forwards `transaction.data` to the
+   * wallet. See `server/src/voucher.js` for why.
+   */
+  vouchers() {
+    return this.request('/chain/vouchers', { body: {} });
+  }
+
+  /** Tell the server a voucher was minted, so the next issue tops up. */
+  reportClaimed(tokenId, amount) {
+    return this.request('/chain/claimed', { body: { tokenId, amount } });
+  }
 }

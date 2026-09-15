@@ -111,6 +111,29 @@ CHAIN_SIGNER_KEY=<CHAIN_SIGNER_KEY 对应地址的私钥>
 
 未配置这三个变量时，`/chain/*` 接口返回 503，游戏其余部分不受影响。
 
+## 端到端验证
+
+```bash
+npx hardhat node --port 8546 &   # 一条真实链
+node tools/chain-e2e.mjs         # 部署 → 签发 → 铸造 → 链上对账
+```
+
+实测输出：
+
+```
+holding   2 cards
+claimable 2 copies | available: true
+vouchers  2
+minted    2 ok, 0 failed
+  card  3 Rat         chain=1 voucher=1
+  card  1 Goblin      chain=1 voucher=1
+re-claim  0 vouchers (expect 0)
+CLAIM WORKS END TO END: YES
+```
+
+这是唯一同时覆盖合约、服务端签名、HTTP 与 calldata 编码的检查——每一层都有自己的测试，
+但只有它能证明这些层**彼此接通**。
+
 ## 已知取舍
 
 - **转账未禁用**：合约是标准 ERC-1155，玩家可自由转让。限制转让是游戏无法在代币

@@ -3,9 +3,9 @@
 > 目标：把现有的卡牌收集游戏与 web3 结合，**链上记录卡牌所有权**，玩法保持链下。
 > 本文给出最小可行方案与最省钱的实现路径，含真实成本估算。
 >
-> 状态：**阶段 1 已实施 ✅**（后端存档 + SIWE 登录 + 服务端裁决抽卡，
-> 见 [`../server/`](../server/README.md)）；**阶段 2 合约与凭证签发已实施 ✅**
-> （见 [`../contracts/`](../contracts/README.md)）；前端领取 UI 未接。
+> 状态：**阶段 1 与阶段 2 均已实施 ✅** —— 后端存档 + SIWE 登录 + 服务端裁决抽卡
+> （[`../server/`](../server/README.md)）、ERC-1155 惰性铸造 + 凭证签发 + 前端领取
+> （[`../contracts/`](../contracts/README.md)）。端到端已在真实本地链上验证通过。
 > 本文最初写作时游戏**没有任何存档**（见 §1.1），该前置问题已在阶段 1 解决。
 
 ## 0. 结论先行
@@ -329,8 +329,13 @@ playtest 仍可直接跑）；连接后切换为服务端权威会话。两种�
 | 后端签发凭证 | 只签名不发交易 | ✅ `server/src/voucher.js` |
 | 领取接口 | `/chain/claimable`、`/chain/vouchers`、`/chain/claimed` | ✅ `server/src/routes.js` |
 | 部署脚本 | 打印服务端所需变量 | ✅ `contracts/scripts/deploy.cjs` |
-| 前端领取 UI | 切链、调用 redeem、显示领取状态 | ⬜ **未接** |
+| 前端领取 UI | 切链、发送交易、显示可领取量 | ✅ `packages/card-collector/src/{wallet,session}.js` |
 | 领取状态同步 | `chain_claims` 表 | ✅ `server/src/store.js` |
+| 端到端验证 | 真实链上铸造并对账 | ✅ `tools/chain-e2e.mjs` |
+
+**ABI 编码放在服务端**：`redeem` 接收 tuple + 动态 `bytes`，手写编码极易产生
+「看起来合法但被合约拒绝」的交易。服务端已有 viem 且持有合约地址，直接返回
+`transaction.data`，浏览器只负责 `eth_sendTransaction`。编码逻辑因此只存在一处。
 
 **实施中的关键发现**：nonce 原本用 `Math.floor(Date.now()/1000)`，导致同一批
 凭证共享同一秒的 nonce，玩家「一次领取全部卡牌」只能成功第一张。已改为 256 位随机数，

@@ -193,6 +193,50 @@ describe('server voucher -> deployed contract', function () {
     expect(await card.balanceOf(address, v.tokenId)).to.equal(4n);
   });
 
+  it('mints from the pre-encoded calldata, as a wallet would send it', async function () {
+    // The client never encodes anything — the server hands it `data` and it
+    // calls eth_sendTransaction. So the encoding has to be exercised as raw
+    // calldata, not by re-encoding the struct here, or a wrong function
+    // selector or ABI layout would slip through.
+    const { signer } = makeSigner();
+    const issued = await signer.issueFor(
+      player.address,
+      saveWith([['Slime', 2]]),
+    );
+    const { transaction } = issued.vouchers[0];
+
+    expect(transaction.to).to.equal(card.target);
+    expect(transaction.data).to.match(/^0x[0-9a-f]+$/i);
+
+    // Exactly what the wallet would submit.
+    const receipt = await (
+      await player.sendTransaction({
+        to: transaction.to,
+        data: transaction.data,
+        value: 0n,
+      })
+    ).wait();
+
+    expect(receipt.status).to.equal(1);
+    expect(await card.balanceOf(player.address, issued.vouchers[0].tokenId)).to.equal(2n);
+  });
+
+  it('encodes a calldata payload the contract can dispatch', async function () {
+    // A wrong selector reverts with no reason string, so assert the call
+    // actually reached the intended function rather than merely not reverting.
+    const { signer } = makeSigner();
+    const issued = await signer.issueFor(player.address, saveWith([['Slime', 1]]));
+    const { transaction } = issued.vouchers[0];
+
+    // Calling from the wrong account must hit the "voucher issued to another
+    // address" guard — proof the calldata decoded into a real Voucher and
+    // reached redeem's first require.
+    const [, , , other] = await ethers.getSigners();
+    await expect(
+      other.sendTransaction({ to: transaction.to, data: transaction.data }),
+    ).to.be.revertedWith('voucher issued to another address');
+  });
+
   it('lets a player claim several cards from one response', async function () {
     // Regression guard. Nonces were once derived from the clock, so every
     // voucher in a single response shared a second — and since the contract

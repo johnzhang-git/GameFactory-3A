@@ -26,6 +26,9 @@ export class WalletError extends Error {
 /** EIP-1193: the user rejected the request. */
 const USER_REJECTED = 4001;
 
+/** EIP-1193: the wallet does not know this chain. */
+const UNKNOWN_CHAIN = 4902;
+
 /** True when an injected wallet is present. */
 export function hasWallet(provider = globalThis.ethereum) {
   return Boolean(provider?.request);
@@ -159,4 +162,95 @@ export async function connectAndSignIn(api) {
   const { message, signature } = await signIn({ address, nonce });
   const session = await api.verify(message, signature);
   return { address: session.address, domain: globalThis.location?.host ?? '' };
+}
+
+/**
+ * The chain the wallet is currently on.
+ *
+ * @returns {Promise<number>} the EIP-155 chain id
+ */
+export async function currentChain() {
+  const provider = requireProvider();
+  return currentChainId(provider);
+}
+
+/**
+ * Ensure the wallet is on `chainId`, asking it to switch if not.
+ *
+ * A wallet that has never seen the chain answers 4902 rather than switching,
+ * so that case falls through to `wallet_addEthereumChain`. That is the normal
+ * path for a player meeting a game's chain for the first time.
+ *
+ * @param {number} chainId
+ * @param {{name?: string, rpcUrls?: string[], explorer?: string,
+ *          currency?: {name: string, symbol: string, decimals: number}}} [meta]
+ * @returns {Promise<boolean>} whether a switch was performed
+ */
+export async function ensureChain(chainId, meta = {}) {
+  const provider = requireProvider();
+  const hex = `0x${chainId.toString(16)}`;
+
+  if ((await currentChainId(provider)) === chainId) return false;
+
+  try {
+    await provider.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: hex }],
+    });
+    return true;
+  } catch (cause) {
+    if (cause?.code !== UNKNOWN_CHAIN) throw toWalletError(cause);
+    // The wallet has no such chain: offer to add it.
+    try {
+      await provider.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: hex,
+            chainName: meta.name ?? `Chain ${chainId}`,
+            nativeCurrency: meta.currency ?? {
+              name: 'Ether',
+              symbol: 'ETH',
+              decimals: 18,
+            },
+            rpcUrls: meta.rpcUrls ?? [],
+            ...(meta.explorer ? { blockExplorerUrls: [meta.explorer] } : {}),
+          },
+        ],
+      });
+      return true;
+    } catch (addCause) {
+      throw toWalletError(addCause);
+    }
+  }
+}
+
+/**
+ * Submit a transaction the server prepared.
+ *
+ * The caller passes `transaction.data` straight through from a voucher — the
+ * client does not build or inspect the calldata. `from` is set explicitly so
+ * the request is unambiguous when the wallet holds several accounts.
+ *
+ * @param {{to: string, data: string, value?: string}} transaction
+ * @param {string} from
+ * @returns {Promise<string>} the transaction hash
+ */
+export async function sendTransaction(transaction, from) {
+  const provider = requireProvider();
+  try {
+    return await provider.request({
+      method: 'eth_sendTransaction',
+      params: [
+        {
+          from,
+          to: transaction.to,
+          data: transaction.data,
+          value: transaction.value ?? '0x0',
+        },
+      ],
+    });
+  } catch (cause) {
+    throw toWalletError(cause);
+  }
 }

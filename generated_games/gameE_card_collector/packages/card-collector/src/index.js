@@ -78,8 +78,9 @@ function buildButtons(hudContainer) {
   const open = make('Open Chest', 'open_chest');
   const gold = make('Gold Chest', 'buy_gold_chest');
   const prestige = make('Prestige', 'prestige');
+  const claim = make('Claim to wallet', 'claim_cards');
   hudContainer.appendChild(bar);
-  return { bar, buy, open, gold, prestige };
+  return { bar, buy, open, gold, prestige, claim };
 }
 
 /** Build the wallet connect / disconnect control and the status line. */
@@ -106,7 +107,7 @@ function buildWalletBar(hudContainer) {
 }
 
 /** Push the latest game state into the HUD and the 3D stand. */
-function sync(session, hud, renderer, buttons, wallet) {
+function sync(session, hud, renderer, buttons, wallet, chain) {
   const state = session.getState();
   const eco = state.economy;
 
@@ -132,6 +133,15 @@ function sync(session, hud, renderer, buttons, wallet) {
     buttons.prestige.textContent =
       `Prestige (+${eco.prestigeGain}) → Lv${eco.maxLevel + 1}`;
     buttons.prestige.disabled = eco.prestigeGain <= 0;
+
+    // Claiming needs a wallet session; without one there is nobody to mint to.
+    const claimable = chain?.claimable ?? 0;
+    buttons.claim.textContent = chain?.busy
+      ? 'Claiming…'
+      : claimable > 0
+        ? `Claim ${claimable} to wallet`
+        : 'Claim to wallet';
+    buttons.claim.disabled = Boolean(chain?.busy) || claimable <= 0;
   }
 
   const cards = state.collection;
@@ -231,7 +241,15 @@ export async function startCardCollector(options = {}) {
   let session = options.session ?? new LocalSession(options.seed ?? 7);
   const game = session.game;
 
-  const rerender = () => sync(session, hud, renderer, buttons, wallet);
+  /**
+   * Claim state, kept outside the session because it is a view concern:
+   * `claimable` counts what the *server* would sign, `busy` guards the button
+   * while a wallet prompt is open.
+   */
+  const chain = { claimable: 0, busy: false, available: false, reason: null };
+
+  const rerender = () =>
+    sync(session, hud, renderer, buttons, wallet, chain);
   let unsubscribe = session.onChange(rerender);
 
   /** Swap the active session, rewiring the subscription. */
@@ -240,6 +258,45 @@ export async function startCardCollector(options = {}) {
     session = next;
     unsubscribe = session.onChange(rerender);
     rerender();
+  }
+
+  /** Refresh how much is left to mint. Silently no-ops without a session. */
+  async function refreshClaimable() {
+    if (!session.claimable) {
+      chain.claimable = 0;
+      chain.available = false;
+      rerender();
+      return;
+    }
+    try {
+      const info = await session.claimable();
+      chain.available = info.available;
+      chain.reason = info.reason;
+      chain.claimable = (info.cards ?? []).reduce(
+        (sum, card) => sum + card.claimable,
+        0,
+      );
+    } catch {
+      // A failed poll must not break rendering; the button simply stays put.
+      chain.claimable = 0;
+    }
+    rerender();
+  }
+
+  /** Mint everything unminted, then refresh the counters. */
+  async function claimCards() {
+    if (chain.busy || !session.claimAll) return;
+    chain.busy = true;
+    rerender();
+    try {
+      const outcome = await session.claimAll();
+      chain.lastOutcome = outcome;
+    } catch (error) {
+      chain.lastOutcome = { claimed: [], reason: error.message };
+    } finally {
+      chain.busy = false;
+      await refreshClaimable();
+    }
   }
 
   /** The server-backed session, created once and reused across sign-ins. */
@@ -275,6 +332,7 @@ export async function startCardCollector(options = {}) {
       useSession(new LocalSession(options.seed ?? 7));
       return false;
     }
+    await refreshClaimable();
     return true;
   }
 
@@ -318,6 +376,7 @@ export async function startCardCollector(options = {}) {
     if (session.address) disconnectWallet();
     else connectWallet();
   });
+  buttons.claim.addEventListener('click', claimCards);
 
   const unsubscribeTick = host.onTick((delta) => {
     session.tick(delta);
@@ -328,6 +387,8 @@ export async function startCardCollector(options = {}) {
   runtime.onWorldBeginPlay();
   host.start();
   rerender();
+  // After the first paint, so a slow claim lookup never delays the game.
+  refreshClaimable();
 
   // Only the game knows its verbs; declare them so a playtest presses the
   // right keys instead of guessing.
@@ -353,6 +414,9 @@ export async function startCardCollector(options = {}) {
     },
     connectWallet,
     disconnectWallet,
+    claimCards,
+    refreshClaimable,
+    chain,
     renderer,
     input,
     buttons,

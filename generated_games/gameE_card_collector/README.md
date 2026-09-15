@@ -66,6 +66,7 @@ gameE_card_collector/
 |---|---|
 | `node tools/balance-sim.mjs` | 经济平衡模拟器，含与真实规则的逐帧一致性校验 |
 | `node tools/browser-check.mjs` | 浏览器端到端检查：钱包连接 → 抽卡 → 刷新后存档恢复 |
+| `node tools/chain-e2e.mjs` | 链上端到端：部署合约 → 签发凭证 → 真实铸造 → 链上对账 |
 
 `browser-check.mjs` 需要后端与 dev server 同时运行：
 
