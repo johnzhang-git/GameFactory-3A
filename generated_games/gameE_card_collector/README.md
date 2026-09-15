@@ -16,8 +16,9 @@
 - 基础 5 档稀有度（Common → Legendary），权重掉落，稀有度越高产币越多。
 - 抽到重复卡累计副本数，按 1/2/4/8/16 阈值升级，收入随等级 ×1.5。
 - 已满级卡再抽到重复，转为按稀有度折算的金币（基础收入 ×3）。
-- 宝箱价格随累计产出线性上涨（每 1000 累计收入 +1），无封顶，最终倒逼转生。
-- 转生累计声望解锁 Mythic（3）/ 黄金宝箱（5）/ Ancient（10）/ Astral（20）新内容，新稀有度混入所有宝箱。经济设计详见 [DESIGN.md](./DESIGN.md)。
+- 宝箱价格随累计产出线性上涨（每 1000 累计收入 +1），无封顶。**注意**：它是「永不转生」的兜底墙（≈2h47m 才触发），而非节奏控制器——一轮时长的实际闸门是转生阈值 `PER_POINT`。
+- 转生累计声望解锁 Mythic（3）/ 黄金宝箱（5）/ Ancient（10）/ Astral（20）新内容，新稀有度混入所有宝箱。
+- 经济设计详见 [DESIGN.md](./DESIGN.md)（含数值校准实测结果 §7）；通用校准方法见 [../BALANCE_CALIBRATION.md](../BALANCE_CALIBRATION.md)。
 
 ## 技术说明
 
@@ -32,7 +33,9 @@ gameE_card_collector/
 ├── src/main.js                  # 宿主入口：导入 gameplay 包并启动
 ├── mechanic_contract.json       # 公共 Mechanic 契约（state / events / commands）
 ├── context_used.json            # 使用的上下文记录
-├── DESIGN.md                    # 经济设计：成本曲线与转生方案
+├── DESIGN.md                    # 经济设计：成本曲线与转生方案 + §7 数值校准实测
+├── tools/
+│   └── balance-sim.mjs          # 经济平衡模拟器（含与真实规则的逐帧一致性校验）
 └── packages/card-collector/     # 生成的 gameplay 包
     ├── package.json
     ├── src/
@@ -44,6 +47,21 @@ gameE_card_collector/
     └── tests/
         └── card-collector.spec.js   # 35 个 vitest 用例覆盖核心循环
 ```
+
+## 数值校准
+
+经济参数不靠手感猜，用模拟器实测。该脚本不依赖 three.js / 浏览器，直接跑：
+
+```bash
+node tools/balance-sim.mjs                     # 完整报告 + 参数扫描
+node tools/balance-sim.mjs --minutes=180       # 指定模拟时长
+node tools/balance-sim.mjs --perPoint=200000   # 覆盖单个参数
+node tools/balance-sim.mjs --wall=10           # 成本墙阈值（秒收入/箱）
+```
+
+启动时它先用**同种子**驱动真实的 `CardCollectorGame` 与镜像逐帧比对（1200 tick / 全部可观测量），
+不一致就拒绝出报告——所以报告里的数字可信。校准流程与踩坑记录见
+[../BALANCE_CALIBRATION.md](../BALANCE_CALIBRATION.md)。
 
 ## 运行
 

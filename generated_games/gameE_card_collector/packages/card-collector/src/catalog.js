@@ -61,8 +61,16 @@ export const ECONOMY = Object.freeze({
  * premium draw with a rare-or-better floor.
  */
 export const PRESTIGE = Object.freeze({
-  /** Lifetime income per prestige point, granted when the run is reset. */
-  PER_POINT: 50000,
+  /**
+   * Lifetime income per prestige point, granted when the run is reset.
+   *
+   * This — not `COST_SCALE` — is what sets a run's length: the collection's
+   * income stops growing within minutes, so time-to-prestige is just
+   * `threshold * PER_POINT / income`. At 50000 the first run ended in ~7
+   * minutes, far short of the ~30-minute target; 200000 lands the first
+   * prestige (P3, unlocking Mythic) at ~27 minutes. See ../DESIGN.md §7.
+   */
+  PER_POINT: 200000,
   /** Cumulative prestige needed to unlock the gold chest. */
   GOLD_CHEST_AT: 5,
   /** Rarities that enter the draw pool at each prestige threshold. */
