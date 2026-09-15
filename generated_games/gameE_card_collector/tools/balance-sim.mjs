@@ -19,6 +19,12 @@
  *   node tools/balance-sim.mjs                            # full report
  *   node tools/balance-sim.mjs --minutes=30 --policy=unlock
  *   node tools/balance-sim.mjs --scale=120 --perPoint=20000
+ *   node tools/balance-sim.mjs --maxLevelBase=5 --maxLevelPerPrestige=1 \
+ *       --levelGrowthRate=1.6 --perPoint=400000
+ *
+ * The level ladder (`--maxLevelBase`, `--maxLevelPerPrestige`,
+ * `--levelGrowthRate`) shapes the *growth* phase; `--perPoint` sets how long a
+ * run lasts. They are separate concerns — see DESIGN.md §8-§9.
  */
 
 import {
@@ -71,6 +77,22 @@ const DEFAULTS = Object.freeze({
   startingCoins: ECONOMY.STARTING_COINS,
   incomeInterval: ECONOMY.INCOME_INTERVAL,
   costScale: ECONOMY.COST_SCALE,
+  /**
+   * Highest card level at prestige count 0. Each further prestige raises the
+   * cap by `maxLevelPerPrestige`, so the collection has more room to grow in
+   * later runs. `maxLevelPerPrestige: 0` reproduces a fixed cap.
+   */
+  maxLevelBase: ECONOMY.MAX_LEVEL_BASE,
+  maxLevelPerPrestige: ECONOMY.MAX_LEVEL_PER_PRESTIGE,
+  /**
+   * Copies needed for level `L` is `levelGrowthRate^(L-1)`, rounded up to stay
+   * strictly increasing. The shipped rate is deliberately sub-doubling: with
+   * the cap rising every prestige it is unbounded, and doubling reaches
+   * 16384 copies by Lv15.
+   */
+  levelGrowthRate: ECONOMY.LEVEL_GROWTH_RATE,
+  /** Income multiplier per level beyond 1. */
+  levelMultiplier: ECONOMY.LEVEL_MULTIPLIER,
   goldMultiplier: ECONOMY.GOLD_CHEST_MULTIPLIER,
   perPoint: PRESTIGE.PER_POINT,
   goldChestAt: PRESTIGE.GOLD_CHEST_AT,
@@ -99,6 +121,8 @@ class Sim {
     this.random = createSeededRandom(seed);
     /** Cumulative prestige points, banked across resets. */
     this.prestige = 0;
+    /** How many times the run has been reset. Drives the level cap. */
+    this.prestigeCount = 0;
     /** Wall-clock seconds elapsed across every run. */
     this.totalTime = 0;
     /**
@@ -150,11 +174,55 @@ class Sim {
     );
   }
 
+  /** The current level cap: a base plus one per prestige performed. */
+  get maxLevel() {
+    return this.p.maxLevelBase + this.p.maxLevelPerPrestige * this.prestigeCount;
+  }
+
+  /**
+   * Copies needed to reach each level, cumulative and geometric: level `i+1`
+   * needs `round(rate^i)`. At `rate = 2` and a cap of 5 this is exactly
+   * `ECONOMY.LEVEL_COPY_THRESHOLDS`, which is what lets the fidelity check
+   * pass on default parameters.
+   */
+  levelThresholds() {
+    const out = [];
+    let value = 1;
+    for (let i = 0; i < this.maxLevel; i += 1) {
+      const threshold = Math.max(1, Math.round(value));
+      // Rounding collides at slow growth rates; force it strictly increasing.
+      out.push(i === 0 ? 1 : Math.max(threshold, out[i - 1] + 1));
+      value *= this.p.levelGrowthRate;
+    }
+    return out;
+  }
+
+  /** The level a card has reached, given the current cap. */
+  levelFor(copies) {
+    const thresholds = this.levelThresholds();
+    let level = 1;
+    for (let i = 0; i < thresholds.length; i += 1) {
+      if (copies >= thresholds[i]) level = i + 1;
+    }
+    return level;
+  }
+
+  /**
+   * Per-level income, mirroring `catalog.cardIncome`: a linear floor so low
+   * rarities always gain at least one coin per level, and exponential growth
+   * for the rest.
+   */
+  cardIncome(rarity, level) {
+    const base = RARITY_PROFILE[rarity].baseIncome;
+    const exponential = base * Math.pow(this.p.levelMultiplier, level - 1);
+    return Math.max(base + (level - 1), Math.floor(exponential));
+  }
+
   /** Total coins minted per income tick by every owned card. */
   incomePerTick() {
     let total = 0;
     for (const card of this.cards.values()) {
-      total += cardIncome(card.rarity, levelForCopies(card.copies));
+      total += this.cardIncome(card.rarity, this.levelFor(card.copies));
     }
     return total;
   }
@@ -193,7 +261,7 @@ class Sim {
     const card = this.cards.get(name);
     if (!card) {
       this.cards.set(name, { rarity, copies: 1 });
-    } else if (levelForCopies(card.copies) < MAX_LEVEL) {
+    } else if (this.levelFor(card.copies) < this.maxLevel) {
       card.copies += 1;
     } else {
       this.maxedDraws += 1;
@@ -263,12 +331,14 @@ class Sim {
     this._resetRun();
     this.runs += 1;
     const prestigeBefore = this.prestige;
-    const incomeStart = this.incomePerTick();
     this._act();
-    let cappedAt = this.incomePerTick() > incomeStart ? null : 0;
     let lastIncome = this.incomePerTick();
-    let stalledSince = 0;
+    /** Time of the most recent income increase; null if it never grew. */
+    let lastIncreaseAt = null;
 
+    // Grow until `stop` says otherwise, remembering *the last* increase.
+    // An earlier version latched the first 30s stall, which under-reported
+    // badly (it fired on a mid-run plateau and ignored later upgrades).
     while (this.runTime < maxRunSeconds) {
       this._step(this.p.incomeInterval);
       this._act();
@@ -278,15 +348,15 @@ class Sim {
       const income = this.incomePerTick();
       if (income !== lastIncome) {
         lastIncome = income;
-        stalledSince = this.runTime;
-      } else if (cappedAt === null && this.runTime - stalledSince > 30) {
-        cappedAt = stalledSince;
+        lastIncreaseAt = this.runTime;
       }
       if (this.runTime >= minRunSeconds && stop(this)) break;
     }
 
+    const cappedAt = lastIncreaseAt;
     const gain = this.prestigeGain();
     this.prestige += gain;
+    this.prestigeCount += 1;
     this._recordCrossings();
     return {
       duration: this.runTime,
@@ -299,6 +369,8 @@ class Sim {
       secondsPerChest: this.secondsPerChest(),
       unique: this.cards.size,
       cappedAt,
+      /** The level cap this run played under. */
+      maxLevel: this.maxLevel,
       chestsOpened: this.chestsOpened,
       maxedDraws: this.maxedDraws,
     };
@@ -347,7 +419,8 @@ function printRuns(label, runs) {
       'run',
       'start P',
       'duration',
-      'capped at',
+      'growth',
+      'Lv',
       'P gain',
       'cum P',
       'cards',
@@ -362,7 +435,8 @@ function printRuns(label, runs) {
         String(i + 1).padStart(3),
         String(r.prestigeBefore).padStart(7),
         mmss(r.duration).padStart(8),
-        (r.cappedAt === null ? '--' : mmss(r.cappedAt)).padStart(9),
+        (r.cappedAt === null ? '--' : mmss(r.cappedAt)).padStart(7),
+        String(r.maxLevel).padStart(2),
         String(r.gain).padStart(6),
         String(r.prestigeAfter).padStart(5),
         `${r.unique}/${BASE_SET_SIZE}`.padStart(5),
@@ -463,6 +537,47 @@ function checkFidelity(ticks = 1200) {
   return { ticks, draws: game.economy.chestsOpened };
 }
 
+/**
+ * Sample income over a no-reset run and report both when it grew and when it
+ * stopped.
+ *
+ * `stop` — the time of the last income increase — is the honest,
+ * window-independent measure of a run's growth phase: past that point the
+ * player can still open chests, but nothing they do raises income. The
+ * fraction columns (`at50`/`at90`) are relative to the ceiling *reachable
+ * within the sampled window*, so they move if you change the window; prefer
+ * `stop` when comparing variants.
+ */
+function growthCurve(params, seed, seconds) {
+  const sim = new Sim(params, seed);
+  const samples = [];
+  let lastIncome = 0;
+  sim.playRun({
+    stop: () => false,
+    maxRunSeconds: seconds,
+    observe: (s) => {
+      const income = s.incomePerTick();
+      if (income !== lastIncome) {
+        samples.push({ t: s.runTime, income });
+        lastIncome = income;
+      }
+    },
+  });
+  const final = sim.incomePerTick();
+  const at = (fraction) => {
+    const target = final * fraction;
+    const hit = samples.find((s) => s.income >= target);
+    return hit ? hit.t : null;
+  };
+  return {
+    final,
+    stop: samples.length ? samples[samples.length - 1].t : 0,
+    at50: at(0.5),
+    at90: at(0.9),
+    upgrades: samples.length,
+  };
+}
+
 // --- analytic helpers ------------------------------------------------------
 
 /** Expected base income per draw for a rarity pool, ignoring leveling. */
@@ -505,6 +620,11 @@ function parseArgs(argv) {
     else if (key === 'wall') options.wall = Number(value);
     else if (key === 'scale') options.costScale = Number(value);
     else if (key === 'perPoint') options.perPoint = Number(value);
+    else if (key === 'maxLevelBase') options.maxLevelBase = Number(value);
+    else if (key === 'maxLevelPerPrestige')
+      options.maxLevelPerPrestige = Number(value);
+    else if (key === 'levelGrowthRate')
+      options.levelGrowthRate = Number(value);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
@@ -526,6 +646,13 @@ function main() {
     chestPolicy: options.chestPolicy,
     ...(options.costScale ? { costScale: options.costScale } : {}),
     ...(options.perPoint ? { perPoint: options.perPoint } : {}),
+    ...(options.maxLevelBase ? { maxLevelBase: options.maxLevelBase } : {}),
+    ...(options.maxLevelPerPrestige
+      ? { maxLevelPerPrestige: options.maxLevelPerPrestige }
+      : {}),
+    ...(options.levelGrowthRate
+      ? { levelGrowthRate: options.levelGrowthRate }
+      : {}),
   };
 
   console.log(
@@ -571,11 +698,10 @@ function main() {
   console.log(
     `  income first stopped growing: ` +
       (firstRun.cappedAt === null ? 'never' : mmss(firstRun.cappedAt)) +
-      `  (ceiling ${num(firstRun.income)}/s)`,
-  );
-  console.log(
-    `  income ceiling reached at ${mmss(firstRun.cappedAt ?? 0)} but the run must ` +
-      `last until the cost wall — that gap is dead time.`,
+      `  (ceiling ${num(firstRun.income)}/s)` +
+      (firstRun.cappedAt !== null && firstRun.cappedAt > horizon
+        ? `  [past the ${options.minutes}-min run, so growth covers the whole run]`
+        : ''),
   );
   console.log(
     `  cost wall (a chest costs ${WALL_SECONDS}s of income) arrives at: ` +
@@ -691,7 +817,37 @@ function main() {
     );
   }
 
-  // 6. Design target check.
+  // 6. Growth curve: how much of a run contains actual progression?
+  //    Compare the shipped shape against a deeper level ladder, which is the
+  //    lever that lengthens growth without touching income per card.
+  console.log(
+    `\n=== growth curve over a ${options.minutes}-min run (window-independent) ===`,
+  );
+  console.log(
+    '  variant              growth stops   ceiling   upgrades   growth share',
+  );
+  const variants = [5, 6, 7, 8, 9].map((maxLevelBase) => ({
+    label: `MAX_LEVEL=${maxLevelBase}${
+      maxLevelBase === DEFAULTS.maxLevelBase ? ' (ship)' : ''
+    }`,
+    params: { ...params, maxLevelBase },
+  }));
+  for (const { label, params: vp } of variants) {
+    const g = growthCurve(vp, options.seed, horizon);
+    const share = g.stop > 0 ? (g.stop / horizon) * 100 : 0;
+    console.log(
+      `  ${label.padEnd(20)} ${mmss(g.stop).padStart(9)}  ` +
+        `${num(g.final).padStart(8)}  ${String(g.upgrades).padStart(8)}  ` +
+        `${num(share).padStart(9)}%`,
+    );
+  }
+  console.log(
+    '  "growth stops" = time of the LAST income increase: past it, opening\n' +
+      '  chests cannot raise income. "growth share" = that time / the run length.\n' +
+      '  Unlocking new rarities on prestige is separate and continues to matter.',
+  );
+
+  // 7. Design target check.
   const unlockAt = chosen.sim.crossings.get(3);
   console.log('\n=== DESIGN.md §3 target: first run ~30 min ===');
   console.log(

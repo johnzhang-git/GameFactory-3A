@@ -26,6 +26,8 @@ import {
   createSeededRandom,
   goldChestPool,
   levelForCopies,
+  levelThresholds,
+  maxLevelAt,
   maxedDuplicateCoins,
   pickCardName,
   prestigeGain,
@@ -93,14 +95,31 @@ describe('catalog', () => {
   });
 
   it('maps copies to level via geometric thresholds', () => {
-    // levelForCopies is the long-term-depth lever: Lv5 needs 16 copies,
-    // so "max every card" is far deeper than "collect one of each".
-    expect(levelForCopies(1)).toBe(1);
-    expect(levelForCopies(2)).toBe(2);
-    expect(levelForCopies(4)).toBe(3);
-    expect(levelForCopies(8)).toBe(4);
-    expect(levelForCopies(16)).toBe(5);
-    expect(levelForCopies(1000)).toBe(5); // capped
+    // levelForCopies is the long-term-depth lever: each level costs more
+    // copies than the last, so "max every card" is far deeper than "collect
+    // one of each". Asserting against the derived table keeps this honest
+    // when the growth rate is retuned for pacing.
+    const thresholds = levelThresholds(0);
+    for (let i = 0; i < thresholds.length; i += 1) {
+      expect(levelForCopies(thresholds[i], 0)).toBe(i + 1);
+    }
+    // Anything past the last threshold is capped at the current max level.
+    expect(levelForCopies(100000, 0)).toBe(maxLevelAt(0));
+  });
+
+  it('raises the level cap with each prestige', () => {
+    // The cap is the long-term reward for resetting: a later run can push
+    // cards further than any earlier one could.
+    expect(maxLevelAt(0)).toBe(ECONOMY.MAX_LEVEL_BASE);
+    expect(maxLevelAt(3)).toBe(
+      ECONOMY.MAX_LEVEL_BASE + 3 * ECONOMY.MAX_LEVEL_PER_PRESTIGE,
+    );
+    // A deeper cap means a longer threshold table, and the shared prefix is
+    // unchanged, so earlier levels keep costing what they always did.
+    const shallow = levelThresholds(0);
+    const deep = levelThresholds(5);
+    expect(deep.length).toBeGreaterThan(shallow.length);
+    expect(deep.slice(0, shallow.length)).toEqual(shallow);
   });
 
   it('refunds maxed duplicates scaled by rarity', () => {
@@ -213,23 +232,33 @@ describe('CardCollectionEconomy', () => {
     expect(level2).toBeGreaterThan(level1);
   });
 
-  it('derives level from copies and caps at the max level', () => {
+  it('derives level from copies and caps at the current max level', () => {
     const eco = new CardCollectionEconomy();
-    // Geometric thresholds: Lv1..Lv5 need 1,2,4,8,16 copies.
-    const maxCopies = ECONOMY.LEVEL_COPY_THRESHOLDS[ECONOMY.MAX_LEVEL - 1];
+    const cap = eco.maxLevel();
+    expect(cap).toBe(maxLevelAt(0));
+    const maxCopies = levelThresholds(0)[cap - 1];
     for (let i = 0; i < maxCopies; i += 1) {
       eco.applyDraw('Slime', RARITY.COMMON);
     }
     expect(eco.cards.get('Slime').copies).toBe(maxCopies);
-    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+    expect(eco.cards.get('Slime').level).toBe(cap);
     // Extra duplicates beyond the cap do not raise the level further.
     eco.applyDraw('Slime', RARITY.COMMON);
-    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+    expect(eco.cards.get('Slime').level).toBe(cap);
+  });
+
+  it('gives a card drawn after prestige a deeper cap', () => {
+    const eco = new CardCollectionEconomy({ prestigeCount: 4 });
+    eco.applyDraw('Slime', RARITY.COMMON);
+    expect(eco.cards.get('Slime').maxLevel).toBe(maxLevelAt(4));
+    // It still starts at Lv1 — a higher cap is headroom, not a head start.
+    expect(eco.cards.get('Slime').level).toBe(1);
   });
 
   it('refunds a duplicate of a maxed card as coin', () => {
     const eco = new CardCollectionEconomy({ coins: 0 });
-    const maxCopies = ECONOMY.LEVEL_COPY_THRESHOLDS[ECONOMY.MAX_LEVEL - 1];
+    const cap = eco.maxLevel();
+    const maxCopies = levelThresholds(0)[cap - 1];
     for (let i = 0; i < maxCopies; i += 1) {
       eco.applyDraw('Slime', RARITY.COMMON);
     }
@@ -238,7 +267,7 @@ describe('CardCollectionEconomy', () => {
     expect(result.coinsAwarded).toBe(maxedDuplicateCoins(RARITY.COMMON));
     expect(eco.coins).toBe(coinsBefore + maxedDuplicateCoins(RARITY.COMMON));
     // The card stays capped, but the refunded coins are not passive income.
-    expect(eco.cards.get('Slime').level).toBe(ECONOMY.MAX_LEVEL);
+    expect(eco.cards.get('Slime').level).toBe(cap);
     expect(eco.coinsEarned).toBe(0);
   });
 

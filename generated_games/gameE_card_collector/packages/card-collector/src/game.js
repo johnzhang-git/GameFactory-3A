@@ -136,6 +136,8 @@ export class CardCollectorGame {
         name: card.name,
         rarity: card.rarity,
         level: card.level,
+        // The cap this card was drawn under, so the UI can show "Lv3/7".
+        maxLevel: card.maxLevel,
         copies: card.copies,
         incomePerTick: card.incomePerTick(),
       })),

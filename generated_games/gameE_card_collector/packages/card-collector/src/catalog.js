@@ -32,19 +32,30 @@ export const ECONOMY = Object.freeze({
   /** Multiplier per duplicate level beyond 1, applied to the base income. */
   LEVEL_MULTIPLIER: 1.5,
   /**
-   * Lifetime passive income per one-coin chest-price rise. Uncapped, so the
-   * price eventually outruns even a maxed collection's income — the signal
-   * to prestige. Tuned for a ~30-minute first run.
+   * Lifetime passive income per one-coin chest-price rise. Uncapped.
+   *
+   * This is a *backstop*, not the pacing control. Measured: the price only
+   * reaches 10s-of-income per chest after ~2h47m, so it never fires within a
+   * 30-minute run. It exists to stop a player who never prestiges, not to
+   * signal when they should. `PRESTIGE.PER_POINT` sets the run length.
    */
   COST_SCALE: 1000,
-  /** The highest level a card can reach; duplicates beyond it are inert. */
-  MAX_LEVEL: 5,
   /**
-   * Copies (including the first) needed to reach each level, indexed by
-   * level - 1. Geometric: a card needs 1, 2, 4, 8, then 16 copies to go
-   * from Lv1 to Lv5, so the last level costs far more than the first.
+   * The level cap before any prestige. Each reset raises it by
+   * `MAX_LEVEL_PER_PRESTIGE`, so later runs have more room to grow instead of
+   * every run ending at the same fixed ceiling.
    */
-  LEVEL_COPY_THRESHOLDS: Object.freeze([1, 2, 4, 8, 16]),
+  MAX_LEVEL_BASE: 5,
+  /** Levels added to the cap per prestige. */
+  MAX_LEVEL_PER_PRESTIGE: 1,
+  /**
+   * Copies for level `L` grow as `LEVEL_GROWTH_RATE^(L-1)`.
+   *
+   * Deliberately slower than doubling. With the cap now rising every prestige
+   * it is unbounded, and at rate 2 the ladder reaches 16384 copies by Lv15 —
+   * an unfinishable collection. At 1.5, Lv15 costs ~87 copies.
+   */
+  LEVEL_GROWTH_RATE: 1.5,
   /**
    * Coins refunded for drawing a duplicate of an already-maxed card, as a
    * multiple of that card's `baseIncome`. A maxed card has no upgrade left,
@@ -66,11 +77,14 @@ export const PRESTIGE = Object.freeze({
    *
    * This — not `COST_SCALE` — is what sets a run's length: the collection's
    * income stops growing within minutes, so time-to-prestige is just
-   * `threshold * PER_POINT / income`. At 50000 the first run ended in ~7
-   * minutes, far short of the ~30-minute target; 200000 lands the first
-   * prestige (P3, unlocking Mythic) at ~27 minutes. See ../DESIGN.md §7.
+   * `threshold * PER_POINT / income` once income caps.
+   *
+   * Climbing the level cap lifts the income ceiling, which would otherwise
+   * make prestige arrive faster, so this moves with `MAX_LEVEL_BASE`: measured
+   * first prestige (P3, unlocking Mythic) lands at ~33m13s over six seeds.
+   * See ../DESIGN.md §7-§9.
    */
-  PER_POINT: 200000,
+  PER_POINT: 250000,
   /** Cumulative prestige needed to unlock the gold chest. */
   GOLD_CHEST_AT: 5,
   /** Rarities that enter the draw pool at each prestige threshold. */
@@ -223,19 +237,64 @@ export function pickCardName(random, rarity) {
 }
 
 /**
+ * The level cap at a given prestige count.
+ *
+ * Each reset adds `MAX_LEVEL_PER_PRESTIGE` levels, so a later run has more
+ * headroom than an earlier one — this is what makes prestige deepen the
+ * collection rather than just restarting it.
+ *
+ * @param {number} [prestigeCount] runs completed so far
+ * @returns {number} the highest reachable level
+ */
+export function maxLevelAt(prestigeCount = 0) {
+  return (
+    ECONOMY.MAX_LEVEL_BASE +
+    ECONOMY.MAX_LEVEL_PER_PRESTIGE * Math.max(0, prestigeCount)
+  );
+}
+
+/**
+ * Copies (including the first) needed to reach each level, indexed by
+ * level - 1. Level `L` needs `round(LEVEL_GROWTH_RATE^(L-1))` copies, forced
+ * strictly increasing so slow growth rates cannot collide after rounding.
+ *
+ * @param {number} [prestigeCount] runs completed so far, which sets the depth
+ * @returns {number[]} one threshold per reachable level
+ */
+export function levelThresholds(prestigeCount = 0) {
+  const cap = maxLevelAt(prestigeCount);
+  const rate = ECONOMY.LEVEL_GROWTH_RATE;
+  const thresholds = [];
+  let value = 1;
+  for (let i = 0; i < cap; i += 1) {
+    if (i === 0) {
+      thresholds.push(1);
+    } else {
+      thresholds.push(
+        Math.max(Math.round(value), thresholds[i - 1] + 1),
+      );
+    }
+    value *= rate;
+  }
+  return thresholds;
+}
+
+/**
  * The level a card has reached for a given number of copies.
  *
- * A card with 1 copy is Lv1; the next copy does not always level it up.
- * Each level needs `LEVEL_COPY_THRESHOLDS[level - 1]` copies, so going
- * Lv4 -> Lv5 needs 16 copies while Lv1 -> Lv2 needs only 2. This is what
- * makes the collection's long-term goal ("max every card") far deeper than
- * the short-term goal ("collect one of each") without touching income.
+ * A card with 1 copy is Lv1; each further level costs progressively more
+ * duplicates, so the collection's long-term goal ("max every card") runs far
+ * deeper than the short-term goal ("collect one of each").
+ *
+ * `prestigeCount` is required to resolve the cap; callers that track a run
+ * pass their own, and omitting it assumes a fresh save.
  *
  * @param {number} copies including the first
- * @returns {number} a level in [1, MAX_LEVEL]
+ * @param {number} [prestigeCount] runs completed so far
+ * @returns {number} a level in [1, maxLevelAt(prestigeCount)]
  */
-export function levelForCopies(copies) {
-  const thresholds = ECONOMY.LEVEL_COPY_THRESHOLDS;
+export function levelForCopies(copies, prestigeCount = 0) {
+  const thresholds = levelThresholds(prestigeCount);
   let level = 1;
   for (let i = 0; i < thresholds.length; i += 1) {
     if (copies >= thresholds[i]) level = i + 1;

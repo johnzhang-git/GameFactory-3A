@@ -68,9 +68,11 @@ function sync(game, hud, renderer, buttons) {
     'stats',
     `${eco.uniqueCards} unique / ${eco.chestsOpened} opened`,
   );
+  // Show the level cap alongside prestige: raising it is the headline reward
+  // for resetting, so it belongs where the player decides whether to reset.
   hud.setValue(
     'prestige',
-    `Prestige ${eco.prestige} (+${eco.prestigeGain} next)`,
+    `Prestige ${eco.prestige} (+${eco.prestigeGain} next) · Lv cap ${eco.maxLevel}`,
   );
   if (buttons) {
     buttons.buy.textContent = `Buy Chest (${eco.chestCost})`;
@@ -79,7 +81,8 @@ function sync(game, hud, renderer, buttons) {
       ? `Gold Chest (${eco.goldChestCost})`
       : 'Gold Chest (locked)';
     buttons.gold.disabled = !eco.canBuyGoldChest;
-    buttons.prestige.textContent = `Prestige (+${eco.prestigeGain})`;
+    buttons.prestige.textContent =
+      `Prestige (+${eco.prestigeGain}) → Lv${eco.maxLevel + 1}`;
     buttons.prestige.disabled = eco.prestigeGain <= 0;
   }
 
@@ -91,7 +94,8 @@ function sync(game, hud, renderer, buttons) {
           .slice(0, 12)
           .map(
             (card) =>
-              `${card.name} Lv.${card.level} (+${card.incomePerTick})`,
+              `${card.name} Lv.${card.level}/${card.maxLevel} ` +
+              `(+${card.incomePerTick})`,
           )
           .join('\n');
   hud.setValue('collection', `Collection\n${listing}`);

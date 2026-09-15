@@ -19,6 +19,7 @@ import {
   chestCostAt,
   levelForCopies,
   maxedDuplicateCoins,
+  maxLevelAt,
   prestigeGain,
 } from './catalog.js';
 
@@ -28,12 +29,22 @@ export class CardInstance {
    * @param {string} name
    * @param {string} rarity
    * @param {number} [copies]
+   * @param {number} [maxLevel] the cap this card was drawn under
    */
-  constructor(name, rarity, copies = 1) {
+  constructor(name, rarity, copies = 1, maxLevel = maxLevelAt(0)) {
     this.name = name;
     this.rarity = rarity;
     /** How many times the chest has drawn this card (including the first). */
     this.copies = copies;
+    /**
+     * The level cap in force when this card entered the collection.
+     *
+     * A card cannot outgrow the cap it was drawn under: prestige raises the
+     * cap for *future* runs, and prestige also clears the collection, so a
+     * card's cap is constant for its whole life. Fixing it here keeps
+     * `level` from depending on state the card itself does not own.
+     */
+    this.maxLevel = maxLevel;
   }
 
   /** Upgrade by one duplicate. */
@@ -41,9 +52,14 @@ export class CardInstance {
     this.copies += 1;
   }
 
+  /** True once no further duplicate can raise this card's level. */
+  get isMaxed() {
+    return this.level >= this.maxLevel;
+  }
+
   /** The card's level, derived from how many copies it has. */
   get level() {
-    return levelForCopies(this.copies);
+    return levelForCopies(this.copies, this.maxLevel - ECONOMY.MAX_LEVEL_BASE);
   }
 
   /** Income per income-tick at the current level. */
@@ -90,6 +106,8 @@ export class CardCollectionEconomy {
     this.incomeInterval = options.incomeInterval ?? ECONOMY.INCOME_INTERVAL;
     /** Cumulative prestige points banked across resets. */
     this.prestige = options.prestige ?? 0;
+    /** How many runs have been reset. Raises the level cap each time. */
+    this.prestigeCount = options.prestigeCount ?? 0;
     /** @type {Map<string, CardInstance>} keyed by card name. */
     this.cards = new Map();
     /** Chests purchased since the run began. */
@@ -179,6 +197,7 @@ export class CardCollectionEconomy {
   prestigeReset() {
     const gain = this.prestigeGain();
     this.prestige += gain;
+    this.prestigeCount += 1;
     this.cards.clear();
     this.coins = ECONOMY.STARTING_COINS;
     this.chestsBought = 0;
@@ -189,6 +208,11 @@ export class CardCollectionEconomy {
     this._incomeAccumulator = 0;
     this._stats = { totalIncome: 0, totalDraws: 0, totalNewCards: 0 };
     return gain;
+  }
+
+  /** The level cap for cards drawn in the current run. */
+  maxLevel() {
+    return maxLevelAt(this.prestigeCount);
   }
 
   /** Current income per tick summed across every owned card. */
@@ -221,10 +245,10 @@ export class CardCollectionEconomy {
   applyDraw(name, rarity) {
     let card = this.cards.get(name);
     const isNew = !card;
-    const isMaxed = !isNew && card.level >= ECONOMY.MAX_LEVEL;
+    const isMaxed = !isNew && card.isMaxed;
     let coinsAwarded = 0;
     if (isNew) {
-      card = new CardInstance(name, rarity, 1);
+      card = new CardInstance(name, rarity, 1, this.maxLevel());
       this.cards.set(name, card);
       this.uniqueCards += 1;
       this._stats.totalNewCards += 1;
@@ -290,6 +314,8 @@ export class CardCollectionEconomy {
       totalNewCards: this._stats.totalNewCards,
       canBuyChest: this.canBuyChest(),
       prestige: this.prestige,
+      prestigeCount: this.prestigeCount,
+      maxLevel: this.maxLevel(),
       prestigeGain: this.prestigeGain(),
       goldChestCost: this.goldChestCost(),
       goldChestUnlocked: this.isGoldChestUnlocked(),
