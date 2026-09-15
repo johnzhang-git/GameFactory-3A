@@ -39,5 +39,24 @@ export function loadConfig(env = process.env) {
     maxOfflineSeconds: Number(env.MAX_OFFLINE_SECONDS ?? 8 * 3600),
     /** Allowed origin for the game front-end. Loosen only for development. */
     corsOrigin: env.CORS_ORIGIN ?? '*',
+
+    // --- on-chain claiming (phase 2) --------------------------------------
+    // All three must be set before the server will issue vouchers; until then
+    // /game/claim answers 503 and the rest of the game is unaffected.
+
+    /** Chain the card contract is deployed to. */
+    chainId: env.CHAIN_ID ? Number(env.CHAIN_ID) : null,
+    /** Deployed `CardCollector` address. */
+    contractAddress: env.CHAIN_CONTRACT_ADDRESS ?? null,
+    /**
+     * Private key whose address is the contract's `signer`.
+     *
+     * Custodial in the sense that it authorises mints, so it belongs in a
+     * secret manager in production, never in a file or an image. The key can
+     * only sign vouchers — it holds no funds and cannot move any.
+     */
+    signerKey: env.CHAIN_SIGNER_KEY ?? null,
+    /** How long an issued voucher stays redeemable. */
+    voucherTtlSeconds: Number(env.VOUCHER_TTL_SECONDS ?? 3600),
   };
 }

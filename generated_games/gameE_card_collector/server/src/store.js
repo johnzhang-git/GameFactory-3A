@@ -51,6 +51,14 @@ export class Store {
         expires_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS chain_claims (
+        address  TEXT NOT NULL,
+        token_id INTEGER NOT NULL,
+        amount   INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (address, token_id)
+      );
+
       CREATE INDEX IF NOT EXISTS sessions_address ON sessions (address);
     `);
   }
@@ -159,6 +167,38 @@ export class Store {
            updated_at = excluded.updated_at`,
       )
       .run(normalize(address), JSON.stringify(save), now, now);
+  }
+
+  // --- on-chain claims ----------------------------------------------------
+
+  /**
+   * The total minted to this address per token id.
+   *
+   * Mirrors `claimedBy` in the contract, which is the authority. This copy
+   * exists so the server can decide what is worth signing without reading the
+   * chain on every request.
+   *
+   * @param {string} address
+   * @returns {Record<number, number>} token id -> amount claimed
+   */
+  claimedTotals(address) {
+    const rows = this.db
+      .prepare('SELECT token_id, amount FROM chain_claims WHERE address = ?')
+      .all(normalize(address));
+    return Object.fromEntries(rows.map((r) => [r.token_id, r.amount]));
+  }
+
+  /** Record the total minted for one card. Never decreases. */
+  recordClaim(address, tokenId, amount, now = Date.now()) {
+    this.db
+      .prepare(
+        `INSERT INTO chain_claims (address, token_id, amount, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(address, token_id) DO UPDATE SET
+           amount = MAX(amount, excluded.amount),
+           updated_at = excluded.updated_at`,
+      )
+      .run(normalize(address), tokenId, amount, now);
   }
 
   /** Drop expired nonces and sessions. Call periodically, not per request. */

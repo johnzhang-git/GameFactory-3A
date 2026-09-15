@@ -27,6 +27,7 @@ export class GameService {
    * @param {{maxOfflineSeconds: number}} config
    */
   constructor(store, config) {
+    /** The store is exposed so claim routes can read a save directly. */
     this.store = store;
     this.config = config;
   }

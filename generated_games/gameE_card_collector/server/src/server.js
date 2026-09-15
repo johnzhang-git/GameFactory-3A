@@ -13,6 +13,7 @@ import { HttpError } from './errors.js';
 import { GameService } from './game-service.js';
 import { createRoutes, matchRoute, readJson } from './routes.js';
 import { Store } from './store.js';
+import { VoucherSigner } from './voucher.js';
 
 /**
  * Wire up a server without listening.
@@ -24,7 +25,8 @@ export function createApp(overrides = {}) {
   const store = new Store(config.dbPath);
   const auth = new Auth(store, config);
   const game = new GameService(store, config);
-  const routes = createRoutes({ auth, game });
+  const chain = new VoucherSigner(store, config);
+  const routes = createRoutes({ auth, game, chain });
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -60,7 +62,7 @@ export function createApp(overrides = {}) {
     }
   });
 
-  return { server, config, store, auth, game };
+  return { server, config, store, auth, game, chain };
 }
 
 function send(res, status, payload) {

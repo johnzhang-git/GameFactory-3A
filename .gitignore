@@ -70,3 +70,9 @@ _cache_code/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Solidity build output (card-collector contracts)
+.hardhat/
+artifacts/
+cache/
+typechain/

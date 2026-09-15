@@ -26,7 +26,7 @@ export async function readJson(req, limitBytes = 64 * 1024) {
 }
 
 /** A route table: [method, path, handler(ctx) -> body]. */
-export function createRoutes({ auth, game }) {
+export function createRoutes({ auth, game, chain }) {
   return [
     ['GET', '/health', () => ({ ok: true })],
 
@@ -69,6 +69,39 @@ export function createRoutes({ auth, game }) {
 
     ['POST', '/game/tick', async ({ req, body }) =>
       game.tick(auth.requireAddress(req), body.seconds)],
+
+    // --- on-chain claiming ------------------------------------------------
+
+    // What the player holds, what they have already minted, and what is left
+    // to claim. Works even when claiming is unconfigured, so the UI can show
+    // the real state instead of hiding the feature.
+    ['GET', '/chain/claimable', async ({ req }) => {
+      const address = auth.requireAddress(req);
+      const save = game.store.loadSave(address);
+      return {
+        available: chain.configured,
+        reason: chain.misconfiguredReason,
+        chainId: chain.config.chainId,
+        contractAddress: chain.config.contractAddress,
+        signer: chain.signerAddress,
+        cards: chain.claimableFor(address, save),
+      };
+    }],
+
+    // Sign vouchers for everything currently claimable. Signs only — the
+    // player submits them and pays the gas.
+    ['POST', '/chain/vouchers', async ({ req }) => {
+      const address = auth.requireAddress(req);
+      const save = game.store.loadSave(address);
+      return chain.issueFor(address, save);
+    }],
+
+    // Record the outcome of a successful mint so the next issue tops up from
+    // there rather than re-signing what the player already holds.
+    ['POST', '/chain/claimed', async ({ req, body }) => {
+      const address = auth.requireAddress(req);
+      return chain.recordClaim(address, body.tokenId, body.amount);
+    }],
   ];
 }
 

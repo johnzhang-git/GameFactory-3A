@@ -185,6 +185,38 @@ export const CARD_POOL = Object.freeze({
 });
 
 /**
+ * The canonical card list, in a fixed order.
+ *
+ * Index is the on-chain `tokenId`. **Appending is safe; reordering or
+ * removing is not** — a minted token's meaning is its position here, so
+ * shuffling would silently turn every already-minted Slime into a Goblin.
+ * New cards from a later game update go on the end.
+ *
+ * Rarity order is worst-to-best, matching `RARITY_ORDER`, so ids roughly
+ * ascend in rarity and a wallet listing them reads sensibly.
+ */
+export const CARD_IDS = Object.freeze([
+  ...CARD_POOL[RARITY.COMMON],
+  ...CARD_POOL[RARITY.UNCOMMON],
+  ...CARD_POOL[RARITY.RARE],
+  ...CARD_POOL[RARITY.EPIC],
+  ...CARD_POOL[RARITY.LEGENDARY],
+  ...CARD_POOL[RARITY.MYTHIC],
+  ...CARD_POOL[RARITY.ANCIENT],
+  ...CARD_POOL[RARITY.ASTRAL],
+]);
+
+/** The on-chain id for a card name, or -1 when the name is not a real card. */
+export function tokenIdFor(cardName) {
+  return CARD_IDS.indexOf(cardName);
+}
+
+/** The card name for an on-chain id, or null when out of range. */
+export function cardNameForTokenId(tokenId) {
+  return CARD_IDS[tokenId] ?? null;
+}
+
+/**
  * A deterministic pseudo-random stream. Passed in by callers so a chest
  * draw is reproducible: the game passes one number stream per run, and
  * tests pass a fixed seed.
