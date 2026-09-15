@@ -27,7 +27,7 @@ export {
   CardCollectionEconomy,
   ChestResult,
 } from './economy.js';
-export { CardCollectorGame, GAME_PHASE } from './game.js';
+export { CardCollectorGame, GAME_EVENT, GAME_PHASE } from './game.js';
 export { CardCollectorRenderer } from './renderer.js';
 
 /** Build two clickable action buttons inside the HUD container. */

@@ -4,7 +4,7 @@
   "gameplay_module": "@a3game/card-collector",
   "engine": "three_js",
   "state": {
-    "phase": "string — current lifecycle phase (idle | opening)",
+    "phase": "string — lifecycle phase, derived from the chest counters (idle | opening). 'opening' means a chest was bought and not yet opened",
     "economy.coins": "number — coins held",
     "economy.chestCost": "number — price of one chest",
     "economy.chestsBought": "number — chests purchased",
@@ -24,10 +24,11 @@
     "collection": "array — owned cards sorted by rarity then level, each {name, rarity, level, copies, incomePerTick, maxLevel}"
   },
   "events": [
-    "change — emitted whenever the economy or collection changes (subscribe via game.onChange)",
-    "chest_bought — a chest was purchased (coincides with change)",
-    "chest_opened — a chest was opened and a card drawn (coincides with change)",
-    "income_minted — passive income was added (coincides with change)"
+    "onChange(listener) — subscribes to every event below; returns an unsubscribe function. The listener is called as (game, event, detail) where `event` is one of the GAME_EVENT values and `detail` is event-specific",
+    "chest_bought — a chest was purchased (detail: null)",
+    "chest_opened — a chest was opened and a card drawn (detail: the ChestResult)",
+    "income_minted — passive income was banked (detail: coins minted this step)",
+    "prestige — the run was reset (detail: prestige points granted)"
   ],
   "commands": [
     "buyChest — deduct chestCost coins and add one chest; returns boolean success",

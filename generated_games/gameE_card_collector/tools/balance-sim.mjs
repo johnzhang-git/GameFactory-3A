@@ -99,6 +99,15 @@ const DEFAULTS = Object.freeze({
   unlocks: PRESTIGE.RARITY_UNLOCKS.map((u) => ({ ...u })),
   /** 'normal' never buys gold chests; 'gold' prefers one when affordable. */
   chestPolicy: 'normal',
+  /**
+   * When true, a card at its level cap is removed from the draw pool, so a
+   * draw seeks a card that can still be upgraded. If a rolled rarity has no
+   * upgradable card left, the draw refunds coin instead (see
+   * `refundMultiplier`).
+   */
+  maxedLeavesPool: false,
+  /** Coin refund per exhausted draw, as a multiple of `baseIncome`. */
+  refundMultiplier: ECONOMY.MAXED_DUPLICATE_COIN_MULTIPLIER,
 });
 
 /** Every cumulative-prestige threshold that unlocks something, ascending. */
@@ -141,8 +150,10 @@ class Sim {
     this.cards = new Map();
     this.totalIncome = 0;
     this.chestsOpened = 0;
-    /** Duplicates of an already-maxed card, refunded as coin. */
+    /** Draws that hit an already-maxed card, refunded as coin. */
     this.maxedDraws = 0;
+    /** Of those, draws whose whole rarity was exhausted. */
+    this.exhaustedDraws = 0;
     this.totalDraws = 0;
     this.runTime = 0;
     this._acc = 0;
@@ -252,16 +263,48 @@ class Sim {
 
   // --- mirrored from economy.js -------------------------------------------
 
+  /** True when this named card can no longer be upgraded. */
+  _isMaxedName(name) {
+    const card = this.cards.get(name);
+    return Boolean(card) && this.levelFor(card.copies) >= card.maxLevel;
+  }
+
   /** Resolve one draw against the collection, refunding maxed duplicates. */
   _draw(pool) {
     const rarity = rollRarity(this.random, pool);
-    const name = pickCardName(this.random, rarity);
     this.chestsOpened += 1;
     this.totalDraws += 1;
+
+    if (this.p.maxedLeavesPool) {
+      // Draw only among cards of this rarity that can still be upgraded.
+      const open = CARD_POOL[rarity].filter((n) => !this._isMaxedName(n));
+      if (open.length === 0) {
+        // The whole rarity is exhausted: refund rather than waste the draw.
+        this.exhaustedDraws += 1;
+        this.maxedDraws += 1;
+        this.coins +=
+          RARITY_PROFILE[rarity].baseIncome * this.p.refundMultiplier;
+        return;
+      }
+      const name = open[Math.floor(this.random() * open.length)];
+      const card = this.cards.get(name);
+      if (!card) {
+        this.cards.set(name, {
+          rarity,
+          copies: 1,
+          maxLevel: this.maxLevel,
+        });
+      } else {
+        card.copies += 1;
+      }
+      return;
+    }
+
+    const name = pickCardName(this.random, rarity);
     const card = this.cards.get(name);
     if (!card) {
-      this.cards.set(name, { rarity, copies: 1 });
-    } else if (this.levelFor(card.copies) < this.maxLevel) {
+      this.cards.set(name, { rarity, copies: 1, maxLevel: this.maxLevel });
+    } else if (this.levelFor(card.copies) < card.maxLevel) {
       card.copies += 1;
     } else {
       this.maxedDraws += 1;
@@ -425,11 +468,14 @@ function printRuns(label, runs) {
       'cum P',
       'cards',
       'draws',
+      'dead',
       'end inc/s',
       'sec/chest',
     ].join(' | '),
   );
   for (const [i, r] of runs.entries()) {
+    const dead =
+      r.chestsOpened > 0 ? (r.maxedDraws / r.chestsOpened) * 100 : 0;
     console.log(
       [
         String(i + 1).padStart(3),
@@ -441,11 +487,16 @@ function printRuns(label, runs) {
         String(r.prestigeAfter).padStart(5),
         `${r.unique}/${BASE_SET_SIZE}`.padStart(5),
         String(r.chestsOpened).padStart(5),
+        `${num(dead, 1)}%`.padStart(6),
         num(r.income).padStart(9),
         num(r.secondsPerChest).padStart(8),
       ].join(' | '),
     );
   }
+  console.log(
+    '  (dead = share of draws that hit an already-maxed card; those give no\n' +
+      '   upgrade, so a high share means the run outlived its content)',
+  );
 }
 
 /**
@@ -620,11 +671,15 @@ function parseArgs(argv) {
     else if (key === 'wall') options.wall = Number(value);
     else if (key === 'scale') options.costScale = Number(value);
     else if (key === 'perPoint') options.perPoint = Number(value);
+    else if (key === 'refund') options.refundMultiplier = Number(value);
+    else if (key === 'poolExhaust') options.maxedLeavesPool = true;
     else if (key === 'maxLevelBase') options.maxLevelBase = Number(value);
     else if (key === 'maxLevelPerPrestige')
       options.maxLevelPerPrestige = Number(value);
     else if (key === 'levelGrowthRate')
       options.levelGrowthRate = Number(value);
+    else if (key === 'maxLevelPerPrestige')
+      options.maxLevelPerPrestige = Number(value);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
@@ -647,12 +702,16 @@ function main() {
     ...(options.costScale ? { costScale: options.costScale } : {}),
     ...(options.perPoint ? { perPoint: options.perPoint } : {}),
     ...(options.maxLevelBase ? { maxLevelBase: options.maxLevelBase } : {}),
-    ...(options.maxLevelPerPrestige
+    ...(options.maxLevelPerPrestige !== undefined
       ? { maxLevelPerPrestige: options.maxLevelPerPrestige }
       : {}),
     ...(options.levelGrowthRate
       ? { levelGrowthRate: options.levelGrowthRate }
       : {}),
+    ...(options.refundMultiplier
+      ? { refundMultiplier: options.refundMultiplier }
+      : {}),
+    ...(options.maxedLeavesPool ? { maxedLeavesPool: true } : {}),
   };
 
   console.log(

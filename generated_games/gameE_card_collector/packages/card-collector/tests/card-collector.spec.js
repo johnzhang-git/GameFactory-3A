@@ -11,6 +11,7 @@
  * three.js, which is what lets every case run headless.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CARD_POOL,
@@ -37,7 +38,7 @@ import {
   CardCollectionEconomy,
   CardInstance,
 } from '../src/economy.js';
-import { CardCollectorGame, GAME_PHASE } from '../src/game.js';
+import { CardCollectorGame, GAME_EVENT, GAME_PHASE } from '../src/game.js';
 
 describe('catalog', () => {
   it('is deterministic for a fixed seed', () => {
@@ -394,6 +395,84 @@ describe('CardCollectorGame', () => {
     game.buyChest();
     game.openChest();
     expect(game.getState().phase).toBe(GAME_PHASE.IDLE);
+  });
+
+  it('reports OPENING while a bought chest is unopened', () => {
+    // The phase is derived from the buy/open counters, so it cannot drift
+    // out of sync with them.
+    const game = new CardCollectorGame({ seed: 8 });
+    expect(game.getState().phase).toBe(GAME_PHASE.IDLE);
+    game.buyChest();
+    expect(game.getState().phase).toBe(GAME_PHASE.OPENING);
+    game.openChest();
+    expect(game.getState().phase).toBe(GAME_PHASE.IDLE);
+    // Buying two and opening one leaves the game still mid-open. Fund the
+    // purchases explicitly so this tests the counter, not the wallet.
+    game.economy.coins = 100;
+    game.buyChest();
+    game.buyChest();
+    game.openChest();
+    expect(game.getState().phase).toBe(GAME_PHASE.OPENING);
+  });
+
+  it('emits a distinguishable event for every state change', () => {
+    const game = new CardCollectorGame({ seed: 21 });
+    /** @type {string[]} */
+    const events = [];
+    /** @type {unknown[]} */
+    const details = [];
+    game.onChange((_g, event, detail) => {
+      events.push(event);
+      details.push(detail);
+    });
+
+    game.economy.coins = 9999;
+    game.buyChest();
+    expect(events).toEqual([GAME_EVENT.CHEST_BOUGHT]);
+
+    const result = game.openChest();
+    expect(events).toEqual([
+      GAME_EVENT.CHEST_BOUGHT,
+      GAME_EVENT.CHEST_OPENED,
+    ]);
+    // The draw result rides along as the event detail.
+    expect(details[1]).toBe(result);
+
+    // Drive the mint through the game, not the economy, so the event fires.
+    const minted = game.update(ECONOMY.INCOME_INTERVAL);
+    expect(events[2]).toBe(GAME_EVENT.INCOME_MINTED);
+    expect(details[2]).toBe(minted);
+
+    game.prestige();
+    expect(events[3]).toBe(GAME_EVENT.PRESTIGE);
+  });
+
+  it('keeps the mechanic contract in step with the emitted events', () => {
+    // Regression guard: the contract once declared chest_bought /
+    // chest_opened / income_minted while the game emitted nothing but a bare
+    // "change". Any future divergence fails here instead of shipping.
+    const contract = JSON.parse(
+      readFileSync(new URL('../../../mechanic_contract.json', import.meta.url), 'utf8'),
+    );
+    const declared = contract.events
+      .map((line) => line.split(' —')[0].trim())
+      .filter((name) => !name.startsWith('onChange'))
+      .sort();
+    const defined = Object.values(GAME_EVENT).sort();
+    expect(declared).toEqual(defined);
+  });
+
+  it('does not emit for a purchase or mint that did not happen', () => {
+    const game = new CardCollectorGame({ seed: 5 });
+    /** @type {string[]} */
+    const events = [];
+    game.onChange((_g, event) => events.push(event));
+
+    game.economy.coins = 0;
+    expect(game.buyChest()).toBe(false);
+    // No cards owned, so income is zero and nothing is minted.
+    game.update(ECONOMY.INCOME_INTERVAL);
+    expect(events).toEqual([]);
   });
 
   it('reports a growing collection in its state', () => {

@@ -21,8 +21,20 @@ import { CardCollectionEconomy } from './economy.js';
 /** Game lifecycle states, for the HUD banner. */
 export const GAME_PHASE = Object.freeze({
   IDLE: 'idle',
-  /** A chest has been bought and is animating open; no new purchase yet. */
+  /** The player holds at least one bought-but-unopened chest. */
   OPENING: 'opening',
+});
+
+/** Every event kind `onChange` listeners can receive. */
+export const GAME_EVENT = Object.freeze({
+  /** A chest was purchased. */
+  CHEST_BOUGHT: 'chest_bought',
+  /** A chest was opened and a card drawn. */
+  CHEST_OPENED: 'chest_opened',
+  /** Passive income was banked. */
+  INCOME_MINTED: 'income_minted',
+  /** The run was reset for prestige. */
+  PRESTIGE: 'prestige',
 });
 
 export class CardCollectorGame {
@@ -33,23 +45,42 @@ export class CardCollectorGame {
     const seed = options.seed ?? 1;
     this.random = createSeededRandom(seed);
     this.economy = options.economy ?? new CardCollectionEconomy();
-    this.phase = GAME_PHASE.IDLE;
     /** @type {import('./economy.js').ChestResult | null} */
     this.lastResult = null;
     /** @type {Set<Function>} */
     this._listeners = new Set();
   }
 
-  /** Subscribe to every game change. Returns an unsubscribe function. */
+  /**
+   * The lifecycle phase, derived rather than stored.
+   *
+   * Deriving it means the phase can never disagree with the counters that
+   * define it: hold an unopened chest and the game is OPENING, open it and
+   * the game is IDLE, with no bookkeeping in between to get wrong.
+   */
+  get phase() {
+    return this.economy.chestsBought > this.economy.chestsOpened
+      ? GAME_PHASE.OPENING
+      : GAME_PHASE.IDLE;
+  }
+
+  /**
+   * Subscribe to every game event. Returns an unsubscribe function.
+   *
+   * The listener receives `(game, event, detail)`, where `event` is one of
+   * `GAME_EVENT` and `detail` is event-specific (the draw result, the coins
+   * minted, or the points granted). Listeners that only need "something
+   * changed" can ignore the extra arguments.
+   */
   onChange(listener) {
     this._listeners.add(listener);
     return () => this._listeners.delete(listener);
   }
 
-  _emit() {
+  _emit(event, detail = null) {
     for (const listener of this._listeners) {
       try {
-        listener(this);
+        listener(this, event, detail);
       } catch (error) {
         // A broken listener must not take down the game loop.
         console.error('[card-collector] listener error', error);
@@ -60,14 +91,14 @@ export class CardCollectorGame {
   /** Buy a chest if affordable. Returns true on success. */
   buyChest() {
     if (!this.economy.buyChest()) return false;
-    this._emit();
+    this._emit(GAME_EVENT.CHEST_BOUGHT);
     return true;
   }
 
   /** Buy a gold chest if unlocked and affordable. Returns true on success. */
   buyGoldChest() {
     if (!this.economy.buyGoldChest()) return false;
-    this._emit();
+    this._emit(GAME_EVENT.CHEST_BOUGHT);
     return true;
   }
 
@@ -97,8 +128,7 @@ export class CardCollectorGame {
     const rarity = rollRarity(this.random, pool);
     const name = pickCardName(this.random, rarity);
     this.lastResult = this.economy.applyDraw(name, rarity);
-    this.phase = GAME_PHASE.IDLE;
-    this._emit();
+    this._emit(GAME_EVENT.CHEST_OPENED, this.lastResult);
     return this.lastResult;
   }
 
@@ -108,8 +138,7 @@ export class CardCollectorGame {
    */
   prestige() {
     const gain = this.economy.prestigeReset();
-    this.phase = GAME_PHASE.IDLE;
-    this._emit();
+    this._emit(GAME_EVENT.PRESTIGE, gain);
     return gain;
   }
 
@@ -121,7 +150,7 @@ export class CardCollectorGame {
    */
   update(deltaSeconds) {
     const minted = this.economy.update(deltaSeconds);
-    if (minted > 0) this._emit();
+    if (minted > 0) this._emit(GAME_EVENT.INCOME_MINTED, minted);
     return minted;
   }
 

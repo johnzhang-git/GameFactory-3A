@@ -34,12 +34,16 @@ export const ECONOMY = Object.freeze({
   /**
    * Lifetime passive income per one-coin chest-price rise. Uncapped.
    *
-   * This is a *backstop*, not the pacing control. Measured: the price only
-   * reaches 10s-of-income per chest after ~2h47m, so it never fires within a
-   * 30-minute run. It exists to stop a player who never prestiges, not to
-   * signal when they should. `PRESTIGE.PER_POINT` sets the run length.
+   * This sets *how many chests a run contains*, which turns out to be the
+   * real lever on pacing. At 1000 a run fit ~5200 draws while the collection
+   * only had ~130 upgrade slots, so 98% of draws hit an already-maxed card
+   * and income stopped rising 36s into a 33-minute run. At 100 a run fits
+   * ~670 draws: the growth phase lasts ~23 minutes, dead draws fall to ~86%
+   * (and to ~51% by the fifth run), and the cost wall finally arrives inside
+   * the run (~19 min) instead of two hours later. `PER_POINT` then sets the
+   * run's length on top of that.
    */
-  COST_SCALE: 1000,
+  COST_SCALE: 100,
   /**
    * The level cap before any prestige. Each reset raises it by
    * `MAX_LEVEL_PER_PRESTIGE`, so later runs have more room to grow instead of
@@ -81,10 +85,10 @@ export const PRESTIGE = Object.freeze({
    *
    * Climbing the level cap lifts the income ceiling, which would otherwise
    * make prestige arrive faster, so this moves with `MAX_LEVEL_BASE`: measured
-   * first prestige (P3, unlocking Mythic) lands at ~33m13s over six seeds.
-   * See ../DESIGN.md §7-§9.
+   * first prestige (P3, unlocking Mythic) lands at ~27-29 minutes over six
+   * seeds. See ../DESIGN.md §7-§10.
    */
-  PER_POINT: 250000,
+  PER_POINT: 200000,
   /** Cumulative prestige needed to unlock the gold chest. */
   GOLD_CHEST_AT: 5,
   /** Rarities that enter the draw pool at each prestige threshold. */
