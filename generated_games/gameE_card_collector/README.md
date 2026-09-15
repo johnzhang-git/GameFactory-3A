@@ -59,6 +59,24 @@ gameE_card_collector/
 | [docs/web3-integration.md](./docs/web3-integration.md) | **Web3 集成方案**：惰性铸造 + ERC-1155 最小实现，含成本明细 |
 | [server/README.md](./server/README.md) | **后端服务**（阶段 1 已实施）：钱包登录 + 存档 + 服务端裁决抽卡 |
 
+## 工具
+
+| 脚本 | 用途 |
+|---|---|
+| `node tools/balance-sim.mjs` | 经济平衡模拟器，含与真实规则的逐帧一致性校验 |
+| `node tools/browser-check.mjs` | 浏览器端到端检查：钱包连接 → 抽卡 → 刷新后存档恢复 |
+
+`browser-check.mjs` 需要后端与 dev server 同时运行：
+
+```bash
+node server/src/index.js &   # :8787
+npx vite --port 5199 &       # 把 /auth 与 /game 代理到 :8787
+node tools/browser-check.mjs
+```
+
+> 它存在的理由：单元测试全绿时该功能其实是坏的——启动时从不读取已存 token，
+> 刷新会静默退回全新本地游戏。只有真实页面能暴露这一点。
+
 ## 数值校准
 
 经济参数不靠手感猜，用模拟器实测。该脚本不依赖 three.js / 浏览器，直接跑：

@@ -233,6 +233,16 @@ describe('ServerSession', () => {
     expect(session.address).toBeNull();
   });
 
+  it('reports that a stored token could not be restored', async () => {
+    // An expired or revoked token must be distinguishable from a good one, so
+    // boot can fall back to local play instead of showing an empty save.
+    const session = makeSession({
+      '/auth/me': () => ({ status: 401, body: { error: 'not signed in' } }),
+    });
+    expect(await session.restore()).toBe(false);
+    expect(session.address).toBeNull();
+  });
+
   it('replaces its view with whatever a purchase returns', async () => {
     // The client must not add a chest locally: the server decides.
     const session = makeSession({

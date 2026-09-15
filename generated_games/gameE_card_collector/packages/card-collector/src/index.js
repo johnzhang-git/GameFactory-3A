@@ -249,6 +249,22 @@ export async function startCardCollector(options = {}) {
     return serverSession;
   };
 
+  /**
+   * Boot into the player's save when this browser already holds a token.
+   *
+   * Without this the stored session is never read, so a reload silently drops
+   * the player back to a fresh local game — which is exactly the failure this
+   * whole phase exists to fix.
+   */
+  if (!options.session && api.signedIn) {
+    const restored = getServerSession();
+    useSession(restored);
+    await restored.restore();
+    // A stored token can be expired or revoked server-side; fall back rather
+    // than leaving the player on an empty view.
+    if (!restored.address) useSession(new LocalSession(options.seed ?? 7));
+  }
+
   async function connectWallet() {
     const target = getServerSession();
     useSession(target);
@@ -265,11 +281,6 @@ export async function startCardCollector(options = {}) {
   async function disconnectWallet() {
     if (serverSession) await serverSession.disconnect();
     useSession(new LocalSession(options.seed ?? 7));
-  }
-
-  // A returning player with a stored token lands straight in their save.
-  if (session instanceof ServerSession) {
-    await session.restore();
   }
 
   const input = new A3GameInputRouter({
