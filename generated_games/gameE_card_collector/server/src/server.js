@@ -11,6 +11,7 @@ import { Auth } from './auth.js';
 import { loadConfig } from './config.js';
 import { HttpError } from './errors.js';
 import { GameService } from './game-service.js';
+import { createKeySource } from './kms.js';
 import { createRoutes, matchRoute, readJson } from './routes.js';
 import { Store } from './store.js';
 import { VoucherSigner } from './voucher.js';
@@ -20,12 +21,30 @@ import { VoucherSigner } from './voucher.js';
  *
  * @param {Partial<ReturnType<typeof loadConfig>>} [overrides]
  */
-export function createApp(overrides = {}) {
+export async function createApp(overrides = {}) {
   const config = { ...loadConfig(), ...overrides };
   const store = new Store(config.dbPath);
   const auth = new Auth(store, config);
   const game = new GameService(store, config);
-  const chain = new VoucherSigner(store, config);
+
+  // A KMS-backed key source is async to build (it loads the AWS SDK), so the
+  // signer is constructed around a resolved source rather than resolving it
+  // lazily on the first claim — a missing permission should fail at boot.
+  const keySource = config.keySource ?? (await createKeySource(config));
+  const chain = new VoucherSigner(store, { ...config, keySource });
+
+  /**
+   * Prove the signing key matches the announced address before serving.
+   *
+   * A mismatch produces vouchers that every deployment rejects, and that
+   * failure surfaces to players as "claiming is broken" with nothing in the
+   * logs. Failing here instead turns it into a startup error naming the two
+   * addresses.
+   */
+  if (chain.configured && config.verifyKeyOnBoot) {
+    await chain.checkKeySource();
+  }
+
   const routes = createRoutes({ auth, game, chain });
 
   const server = createServer(async (req, res) => {
@@ -80,8 +99,8 @@ function send(res, status, payload) {
  *
  * @param {Partial<ReturnType<typeof loadConfig>>} [overrides]
  */
-export function startServer(overrides = {}) {
-  const app = createApp(overrides);
+export async function startServer(overrides = {}) {
+  const app = await createApp(overrides);
   return new Promise((resolve) => {
     app.server.listen(app.config.port, app.config.host, () => {
       const address = app.server.address();

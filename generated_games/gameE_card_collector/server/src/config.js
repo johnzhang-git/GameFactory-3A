@@ -49,13 +49,42 @@ export function loadConfig(env = process.env) {
     /** Deployed `CardCollector` address. */
     contractAddress: env.CHAIN_CONTRACT_ADDRESS ?? null,
     /**
-     * Private key whose address is the contract's `signer`.
+     * A raw private key, used only when no KMS is configured.
      *
-     * Custodial in the sense that it authorises mints, so it belongs in a
-     * secret manager in production, never in a file or an image. The key can
-     * only sign vouchers — it holds no funds and cannot move any.
+     * Fine for local development — it can only sign vouchers, holds no funds,
+     * and cannot move any — but wrong for anything holding real value: it is
+     * the one secret whose leak authorises unlimited minting, and it would sit
+     * in an environment variable, a process listing and possibly an image.
+     * Set `keyProvider: 'kms'` in production instead.
      */
     signerKey: env.CHAIN_SIGNER_KEY ?? null,
+    /**
+     * Where the signing key lives: 'env' (default) or 'kms'.
+     *
+     * Defaulting to 'env' keeps local setup to one variable; a deployment
+     * opts into a KMS explicitly rather than having it silently unavailable.
+     */
+    keyProvider: env.CHAIN_KEY_PROVIDER ?? 'env',
+    /** The KMS key id or ARN, when `keyProvider` is 'kms'. */
+    kmsKeyId: env.CHAIN_KMS_KEY_ID ?? null,
+    /** AWS region for the KMS client. */
+    awsRegion: env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? null,
+    /**
+     * The address the signing key must correspond to.
+     *
+     * Required for KMS: AWS returns no address for an asymmetric key, and the
+     * recovery id has to be checked against a known address. Declaring it also
+     * catches a key id that points at the wrong key before any voucher is
+     * issued.
+     */
+    signerAddress: env.CHAIN_SIGNER_ADDRESS ?? null,
+    /**
+     * Refuse to start if the key does not match `signerAddress`.
+     *
+     * On by default: a mismatch means every claim reverts on chain, and
+     * finding that out at startup beats finding it out from players.
+     */
+    verifyKeyOnBoot: env.CHAIN_VERIFY_KEY !== 'false',
     /** How long an issued voucher stays redeemable. */
     voucherTtlSeconds: Number(env.VOUCHER_TTL_SECONDS ?? 3600),
   };

@@ -96,6 +96,12 @@ const { token } = await post('/auth/verify', { message, signature });
 | `MAX_OFFLINE_SECONDS` | 28800（8h） | 离线收益与 tick 的上限 |
 | `CORS_ORIGIN` | `*` | 前端来源，**上线前应收紧** |
 | `SIWE_RPC_URL` | 公共节点 | 仅合约钱包验签时需要 |
+| `CHAIN_SIGNER_KEY` | — | 原始私钥。**仅限开发**，生产用 KMS |
+| `CHAIN_KEY_PROVIDER` | `env` | `env` 或 `kms` |
+| `CHAIN_KMS_KEY_ID` | — | KMS 密钥 id/ARN（`kms` 模式） |
+| `CHAIN_SIGNER_ADDRESS` | — | 签名地址，`kms` 模式必填 |
+| `CHAIN_VERIFY_KEY` | `true` | 启动时校验密钥与地址匹配 |
+| `AWS_REGION` | — | KMS 客户端区域 |
 
 ## 前端接入
 
@@ -112,6 +118,61 @@ await startCardCollector({ apiBaseUrl: 'http://127.0.0.1:8787' });
 ```
 
 启动后自动恢复已存会话（token 存于 `localStorage`），无需重复签名。
+
+## 签名密钥
+
+`CHAIN_SIGNER_KEY` 是**唯一泄露即可无限铸造**的秘密。本地开发用环境变量可以，
+生产必须换成 KMS：
+
+```bash
+CHAIN_KEY_PROVIDER=kms
+CHAIN_KMS_KEY_ID=arn:aws:kms:...:key/...
+CHAIN_SIGNER_ADDRESS=0x...        # 必填，见下
+npm install @aws-sdk/client-kms   # 仅 KMS 模式需要
+```
+
+密钥须为 `ECC_SECG_P256K1` + `SIGN_VERIFY`（即 secp256k1，以太坊用的曲线）。
+
+### 为什么 KMS 不能直接接
+
+托管 KMS 的 ECDSA 有三个会让**每一张凭证在链上失败、而本地测试全绿**的陷阱：
+
+| 陷阱 | 后果 | 处理 |
+|---|---|---|
+| KMS 返回 **DER**，以太坊要 `r‖s‖v` | DER 是嵌套 TLV、整数变长，不能按固定偏移切 | `parseDerSignature` 完整解析，含长格式长度与符号填充 |
+| KMS **不归一化 `s`** | OpenZeppelin 按 EIP-2 拒绝 high-s，链上直接 revert | 超过 `n/2` 时取 `n−s` |
+| KMS **不返回 recovery id** | 没有 `v` 就无法还原签名者 | 对 27/28 两候选试还原，与预期地址比对 |
+
+第二项是最阴险的：**viem 自己的签名器总是输出 low-s**，所以用 viem 伪造 KMS 的测试
+永远发现不了——本地用原始私钥一切正常，生产用 KMS 则每笔都 revert。
+`tests/key-source.spec.js` 用真实密钥手工构造 high-s 签名来覆盖这一点。
+
+`CHAIN_SIGNER_ADDRESS` 在 KMS 模式**必填**：AWS 不提供非对称密钥的地址，
+而 recovery id 必须对照一个已知地址才能确定。声明它还有个附带好处——
+密钥 id 指错时启动即报错，而不是等到玩家领取失败。
+
+### 启动自检
+
+服务启动时会用固定的 digest 签一次并还原地址（`CHAIN_VERIFY_KEY=false` 可关）。
+不匹配就直接启动失败并打印两个地址。否则这类配置错误只会表现为
+「领取功能坏了」，日志里什么都没有。
+
+### 端到端验证
+
+```bash
+npx hardhat compile
+node tools/kms-e2e.mjs
+```
+
+用**返回 DER** 的 KMS stub 走完整链路，最终由真实合约验证签名被接受：
+
+```
+key source verified
+vouchers  2
+minted    2 ok, 0 failed
+  card  9 chain=1 voucher=1
+KMS-SIGNED VOUCHERS MINT ON CHAIN: YES
+```
 
 ## 尚未实现
 

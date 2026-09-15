@@ -17,9 +17,9 @@
 
 import { randomBytes } from 'node:crypto';
 import { CARD_IDS, tokenIdFor } from '@a3game/card-collector/rules';
-import { encodeFunctionData } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { encodeFunctionData, hashTypedData } from 'viem';
 import { HttpError } from './errors.js';
+import { createEnvKeySource, verifyKeySource } from './key-source.js';
 
 /** The EIP-712 domain and struct, matching `contracts/CardCollector.sol`. */
 const VOUCHER_TYPES = {
@@ -97,34 +97,61 @@ export class VoucherSigner {
   /**
    * @param {import('./store.js').Store} store
    * @param {{chainId?: number, contractAddress?: string, signerKey?: string,
+   *          signerAddress?: string, keySource?: {signDigest: Function, address: string},
    *          voucherTtlSeconds?: number}} config
    */
   constructor(store, config) {
     this.store = store;
     this.config = config;
-    this.account = config.signerKey
-      ? privateKeyToAccount(config.signerKey)
-      : null;
+    /**
+     * The key source can be handed in directly (KMS, or a test double), in
+     * which case `signerKey` is ignored. Otherwise a raw key from the
+     * environment is used, which is fine locally and wrong for anything
+     * holding real value.
+     */
+    this.keySource =
+      config.keySource ??
+      (config.signerKey ? createEnvKeySource(config.signerKey) : null);
   }
 
   /** True when the server can actually issue vouchers. */
   get configured() {
     return Boolean(
-      this.account && this.config.contractAddress && this.config.chainId,
+      this.keySource && this.config.contractAddress && this.config.chainId,
     );
   }
 
   /** The address players' vouchers must be signed by, or null. */
   get signerAddress() {
-    return this.account?.address ?? null;
+    return this.keySource?.address ?? null;
+  }
+
+  /** Where the key came from, for a startup log line. */
+  get keySourceKind() {
+    return this.keySource?.kind ?? null;
   }
 
   /** Why issuance is unavailable, phrased for an operator reading a log. */
   get misconfiguredReason() {
-    if (!this.account) return 'CHAIN_SIGNER_KEY is not set';
+    if (!this.keySource) {
+      return 'no signing key (set CHAIN_SIGNER_KEY, or configure a KMS)';
+    }
     if (!this.config.contractAddress) return 'CHAIN_CONTRACT_ADDRESS is not set';
     if (!this.config.chainId) return 'CHAIN_ID is not set';
     return null;
+  }
+
+  /**
+   * Check the key works, before any voucher depends on it.
+   *
+   * Catches a mismatched key id, a missing `kms:Sign` grant, or a raw key that
+   * does not correspond to the deployed contract's signer — all of which
+   * otherwise present identically as "every claim reverts on chain".
+   */
+  async checkKeySource() {
+    if (!this.keySource) return false;
+    await verifyKeySource(this.keySource);
+    return true;
   }
 
   /** The EIP-712 domain this server signs under. */
@@ -221,12 +248,22 @@ export class VoucherSigner {
     const vouchers = [];
     for (const entry of claimable) {
       const voucher = this.buildVoucher(address, entry.tokenId, entry.copies);
-      const signature = await this.account.signTypedData({
+      /**
+       * Hash locally, sign the digest.
+       *
+       * A KMS signs an opaque digest and never sees the structured data, so
+       * the EIP-712 hashing has to happen on this side. Doing it explicitly
+       * (rather than via `signTypedData`) keeps the raw-key and KMS paths on
+       * exactly the same code, which is the only way the tests that cover the
+       * raw key can mean anything for the KMS one.
+       */
+      const digest = hashTypedData({
         domain: this.domain(),
         types: VOUCHER_TYPES,
         primaryType: 'Voucher',
         message: voucher,
       });
+      const signature = await this.keySource.signDigest(digest);
       vouchers.push({
         ...voucher,
         signature,
