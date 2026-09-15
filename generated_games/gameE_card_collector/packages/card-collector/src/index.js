@@ -18,8 +18,11 @@ import {
   A3GameLookMode,
   bootA3GameRuntime,
 } from '@a3game/playable';
+import { GameApiClient } from './api-client.js';
 import { CardCollectorGame } from './game.js';
 import { aimCamera, CardCollectorRenderer, lightStage } from './renderer.js';
+import { LocalSession, ServerSession } from './session.js';
+import { hasWallet } from './wallet.js';
 
 export {
   CARD_POOL,
@@ -38,6 +41,19 @@ export {
 } from './economy.js';
 export { CardCollectorGame, GAME_EVENT, GAME_PHASE } from './game.js';
 export { CardCollectorRenderer } from './renderer.js';
+export {
+  GameApiClient,
+  GameApiError,
+  createBrowserTokenStore,
+} from './api-client.js';
+export { LocalSession, ServerSession } from './session.js';
+export {
+  WalletError,
+  connectAndSignIn,
+  connectWallet,
+  createSiweMessage,
+  hasWallet,
+} from './wallet.js';
 
 /** Build two clickable action buttons inside the HUD container. */
 function buildButtons(hudContainer) {
@@ -66,9 +82,32 @@ function buildButtons(hudContainer) {
   return { bar, buy, open, gold, prestige };
 }
 
+/** Build the wallet connect / disconnect control and the status line. */
+function buildWalletBar(hudContainer) {
+  const bar = document.createElement('div');
+  bar.style.cssText =
+    'position:absolute;top:16px;right:16px;display:flex;gap:8px;' +
+    'align-items:center;pointer-events:auto;font:13px system-ui;color:#cbd5e1;';
+
+  const status = document.createElement('span');
+  status.dataset.walletStatus = 'true';
+  status.style.cssText = 'opacity:0.85;';
+
+  const button = document.createElement('button');
+  button.dataset.gameAction = 'connect_wallet';
+  button.style.cssText =
+    'padding:8px 14px;font-size:13px;font-weight:600;border:none;' +
+    'border-radius:8px;cursor:pointer;color:#14161c;' +
+    'background:linear-gradient(90deg,#c084fc,#38bdf8);';
+
+  bar.append(status, button);
+  hudContainer.appendChild(bar);
+  return { bar, status, button };
+}
+
 /** Push the latest game state into the HUD and the 3D stand. */
-function sync(game, hud, renderer, buttons) {
-  const state = game.getState();
+function sync(session, hud, renderer, buttons, wallet) {
+  const state = session.getState();
   const eco = state.economy;
 
   hud.setValue('coins', `Coins ${eco.coins}`);
@@ -122,14 +161,31 @@ function sync(game, hud, renderer, buttons) {
     hud.setVisible('result', true);
   }
 
+  if (wallet) {
+    const signedIn = Boolean(session.address);
+    wallet.status.textContent = signedIn
+      ? `${session.address.slice(0, 6)}…${session.address.slice(-4)}`
+      : session.error
+        ? session.error
+        : hasWallet()
+          ? 'Not signed in — progress is local'
+          : 'No wallet detected — progress is local';
+    wallet.status.style.color = session.error ? '#fca5a5' : '#cbd5e1';
+    wallet.button.textContent = signedIn ? 'Sign out' : 'Connect wallet';
+  }
+
   renderer.renderWall(cards);
 }
 
 /**
  * Start the game. Returns the full runtime context plus the game itself.
  *
- * @param {{container?: string, hudContainer?: string, seed?: number}}
- *        [options]
+ * Play starts locally and needs nothing. Connecting a wallet switches to the
+ * server-backed session, which owns the save from then on.
+ *
+ * @param {{container?: string, hudContainer?: string, seed?: number,
+ *          apiBaseUrl?: string, apiClient?: GameApiClient,
+ *          session?: LocalSession | ServerSession}} [options]
  */
 export async function startCardCollector(options = {}) {
   const runtimeContext = await bootA3GameRuntime({
@@ -139,9 +195,9 @@ export async function startCardCollector(options = {}) {
     autoBeginPlay: false,
     autoStart: false,
   });
-  const { host, assets, hud, session, runtime } = runtimeContext;
-
-  const game = new CardCollectorGame({ seed: options.seed ?? 7 });
+  // The runtime's own `session` is not used here; the name belongs to the
+  // wallet session below, which is the thing this file actually manages.
+  const { host, assets, hud, runtime } = runtimeContext;
 
   const renderer = new CardCollectorRenderer({
     host,
@@ -159,6 +215,62 @@ export async function startCardCollector(options = {}) {
   hud.addBanner('result', { anchor: 'center', value: '', visible: false });
 
   const buttons = buildButtons(hud.container);
+  const wallet = buildWalletBar(hud.container);
+
+  const api =
+    options.apiClient ??
+    new GameApiClient({ baseUrl: options.apiBaseUrl ?? '' });
+
+  /**
+   * The active session. Local by default; connecting a wallet swaps in a
+   * server-backed one that owns the save.
+   *
+   * Everything below goes through `session`, which is why the input handlers
+   * do not care which mode is active.
+   */
+  let session = options.session ?? new LocalSession(options.seed ?? 7);
+  const game = session.game;
+
+  const rerender = () => sync(session, hud, renderer, buttons, wallet);
+  let unsubscribe = session.onChange(rerender);
+
+  /** Swap the active session, rewiring the subscription. */
+  function useSession(next) {
+    unsubscribe();
+    session = next;
+    unsubscribe = session.onChange(rerender);
+    rerender();
+  }
+
+  /** The server-backed session, created once and reused across sign-ins. */
+  let serverSession = null;
+  const getServerSession = () => {
+    serverSession ??= new ServerSession({ api, seed: options.seed ?? 7 });
+    return serverSession;
+  };
+
+  async function connectWallet() {
+    const target = getServerSession();
+    useSession(target);
+    const ok = await target.connect();
+    if (!ok) {
+      // Sign-in failed or was declined: keep playing locally rather than
+      // stranding the player on an empty server view.
+      useSession(new LocalSession(options.seed ?? 7));
+      return false;
+    }
+    return true;
+  }
+
+  async function disconnectWallet() {
+    if (serverSession) await serverSession.disconnect();
+    useSession(new LocalSession(options.seed ?? 7));
+  }
+
+  // A returning player with a stored token lands straight in their save.
+  if (session instanceof ServerSession) {
+    await session.restore();
+  }
 
   const input = new A3GameInputRouter({
     target: host.container,
@@ -173,36 +285,38 @@ export async function startCardCollector(options = {}) {
   input.onAction((action, phase) => {
     if (phase !== 'pressed') return;
     if (action === 'buy_chest') {
-      game.buyChest();
+      session.buy();
     } else if (action === 'buy_gold_chest') {
-      game.buyGoldChest();
+      session.buyGold();
     } else if (action === 'open_chest') {
-      const result = game.openChest();
-      if (result) renderer.hopChest();
+      session.open();
+      renderer.hopChest();
     } else if (action === 'prestige') {
-      game.prestige();
+      session.prestige();
     }
   });
 
-  buttons.buy.addEventListener('click', () => game.buyChest());
-  buttons.gold.addEventListener('click', () => game.buyGoldChest());
-  buttons.prestige.addEventListener('click', () => game.prestige());
+  buttons.buy.addEventListener('click', () => session.buy());
+  buttons.gold.addEventListener('click', () => session.buyGold());
+  buttons.prestige.addEventListener('click', () => session.prestige());
   buttons.open.addEventListener('click', () => {
-    const result = game.openChest();
-    if (result) renderer.hopChest();
+    session.open();
+    renderer.hopChest();
+  });
+  wallet.button.addEventListener('click', () => {
+    if (session.address) disconnectWallet();
+    else connectWallet();
   });
 
-  game.onChange(() => sync(game, hud, renderer, buttons));
-
-  const unsubscribe = host.onTick((delta) => {
-    game.update(delta);
+  const unsubscribeTick = host.onTick((delta) => {
+    session.tick(delta);
     renderer.update(delta);
-    sync(game, hud, renderer, buttons);
+    rerender();
   });
 
   runtime.onWorldBeginPlay();
   host.start();
-  sync(game, hud, renderer, buttons);
+  rerender();
 
   // Only the game knows its verbs; declare them so a playtest presses the
   // right keys instead of guessing.
@@ -216,14 +330,27 @@ export async function startCardCollector(options = {}) {
 
   const context = {
     ...runtimeContext,
-    game,
+    // `session` is a getter because connecting a wallet swaps it mid-run.
+    get session() {
+      return session;
+    },
+    get game() {
+      return game;
+    },
+    get address() {
+      return session.address;
+    },
+    connectWallet,
+    disconnectWallet,
     renderer,
     input,
     buttons,
+    wallet,
     getState() {
-      return game.getState();
+      return session.getState();
     },
     dispose() {
+      unsubscribeTick();
       unsubscribe();
       input.disable();
       renderer.dispose();

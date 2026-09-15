@@ -158,10 +158,19 @@ export class GameService {
     }));
   }
 
-  /** The public shape of a game, sent to the client. */
+  /**
+   * The public shape of a game, sent to the client.
+   *
+   * Carries the raw save alongside the derived view. The derived fields are
+   * what the HUD renders; the raw save is what the client restores from, so
+   * reloading a save never has to round-trip through a lossy mapping (and
+   * `chestCost` — a derived price — can never be mistaken for the base cost
+   * the economy stores).
+   */
   snapshot({ game, economy }) {
     return {
       savedAt: Date.now(),
+      save: economy.toJSON(),
       ...game.getState(),
     };
   }

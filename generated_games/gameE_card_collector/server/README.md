@@ -97,12 +97,27 @@ const { token } = await post('/auth/verify', { message, signature });
 | `CORS_ORIGIN` | `*` | 前端来源，**上线前应收紧** |
 | `SIWE_RPC_URL` | 公共节点 | 仅合约钱包验签时需要 |
 
-## 尚未实现（属于阶段 2）
+## 前端接入
+
+游戏前端通过 `packages/card-collector/src/{api-client,session,wallet}.js` 接入。
+
+**前端不强制连接**：未连接钱包时是纯本地玩法（不需要本服务），连接后切换为服务端权威。
+这样 demo 与现有 playtest 仍可直接跑，也便于后端独立上线。
+
+```js
+import { startCardCollector } from '@a3game/card-collector';
+
+// 指向后端；省略则连当前源（同域部署时用）
+await startCardCollector({ apiBaseUrl: 'http://127.0.0.1:8787' });
+```
+
+启动后自动恢复已存会话（token 存于 `localStorage`），无需重复签名。
+
+## 尚未实现
 
 - 链上领取（惰性铸造 ERC-1155）——`docs/web3-integration.md` §7 阶段 2
 - 生产部署（HTTPS、反向代理、进程守护）
 - 速率限制
-- 前端接入（目前游戏前端仍走内存，未连此服务）
 
 ## 目录
 

@@ -120,6 +120,25 @@ export class ChestResult {
       coinsAwarded: this.coinsAwarded,
     };
   }
+
+  /**
+   * Rebuild a result from `toJSON()` output.
+   *
+   * A draw made on the server arrives as JSON and has to render as the same
+   * object the browser would have produced locally.
+   *
+   * @param {ReturnType<ChestResult['toJSON']>} data
+   */
+  static fromJSON(data) {
+    return new ChestResult(
+      data.name,
+      data.rarity,
+      data.isNew,
+      data.levelAfter,
+      data.incomePerTick,
+      data.coinsAwarded ?? 0,
+    );
+  }
 }
 
 export class CardCollectionEconomy {
