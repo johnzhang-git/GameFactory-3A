@@ -1,0 +1,20 @@
+{
+  "name": "@a3game/card-collector-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal backend for the card collector: wallet login, persistent saves, server-authoritative draws.",
+  "main": "./src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@a3game/card-collector": "file:../packages/card-collector",
+    "better-sqlite3": "^12.11.1",
+    "viem": "^2.56.5"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}

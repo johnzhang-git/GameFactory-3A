@@ -39,11 +39,20 @@ export const GAME_EVENT = Object.freeze({
 
 export class CardCollectorGame {
   /**
-   * @param {{seed?: number, economy?: CardCollectionEconomy}} [options]
+   * @param {{seed?: number, random?: () => number,
+   *          economy?: CardCollectionEconomy}} [options]
    */
   constructor(options = {}) {
-    const seed = options.seed ?? 1;
-    this.random = createSeededRandom(seed);
+    /**
+     * `random` overrides `seed`, and exists so an authoritative server can
+     * drive draws from a cryptographic source. The seeded default stays for
+     * the browser and the tests, where reproducibility is the point: a shared
+     * seed is exactly what makes a draw replayable and a test deterministic.
+     * On a server the same property would let a player predict or reroll.
+     *
+     * @type {() => number}
+     */
+    this.random = options.random ?? createSeededRandom(options.seed ?? 1);
     this.economy = options.economy ?? new CardCollectionEconomy();
     /** @type {import('./economy.js').ChestResult | null} */
     this.lastResult = null;

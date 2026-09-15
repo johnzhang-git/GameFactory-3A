@@ -57,6 +57,7 @@ gameE_card_collector/
 |---|---|
 | [DESIGN.md](./DESIGN.md) | 经济设计、参数校准实测（§7-§10） |
 | [docs/web3-integration.md](./docs/web3-integration.md) | **Web3 集成方案**：惰性铸造 + ERC-1155 最小实现，含成本明细 |
+| [server/README.md](./server/README.md) | **后端服务**（阶段 1 已实施）：钱包登录 + 存档 + 服务端裁决抽卡 |
 
 ## 数值校准
 

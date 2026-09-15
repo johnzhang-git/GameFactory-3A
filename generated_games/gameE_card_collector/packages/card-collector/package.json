@@ -6,7 +6,8 @@
   "description": "Card-collector idle game: buy chests, draw cards, earn coins over time.",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./rules": "./src/rules.js"
   },
   "dependencies": {
     "@a3game/playable": "file:./packages/a3game-playable"

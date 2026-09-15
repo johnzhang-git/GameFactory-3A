@@ -21,7 +21,16 @@ import {
 import { CardCollectorGame } from './game.js';
 import { aimCamera, CardCollectorRenderer, lightStage } from './renderer.js';
 
-export { CARD_POOL, ECONOMY, RARITY, RARITY_PROFILE } from './catalog.js';
+export {
+  CARD_POOL,
+  ECONOMY,
+  PRESTIGE,
+  RARITY,
+  RARITY_PROFILE,
+  availableRarities,
+  goldChestPool,
+  maxLevelAt,
+} from './catalog.js';
 export {
   CardInstance,
   CardCollectionEconomy,

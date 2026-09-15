@@ -65,3 +65,8 @@ _cache_code/
 
 # agent
 .codex/
+
+# Server runtime state (card-collector server)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

@@ -66,6 +66,29 @@ export class CardInstance {
   incomePerTick() {
     return cardIncome(this.rarity, this.level);
   }
+
+  /** Plain-object form, for persistence. */
+  toJSON() {
+    return {
+      name: this.name,
+      rarity: this.rarity,
+      copies: this.copies,
+      maxLevel: this.maxLevel,
+    };
+  }
+
+  /**
+   * Rebuild a card from `toJSON()` output.
+   *
+   * `maxLevel` is persisted rather than recomputed: the cap in force when the
+   * card was drawn is part of its identity, and a later prestige would
+   * otherwise silently raise it.
+   *
+   * @param {ReturnType<CardInstance['toJSON']>} data
+   */
+  static fromJSON(data) {
+    return new CardInstance(data.name, data.rarity, data.copies, data.maxLevel);
+  }
 }
 
 /** An immutable draw result, so a chest open can be logged and replayed. */
@@ -321,5 +344,63 @@ export class CardCollectionEconomy {
       goldChestUnlocked: this.isGoldChestUnlocked(),
       canBuyGoldChest: this.canBuyGoldChest(),
     };
+  }
+
+  /**
+   * The whole run as a plain object, for persistence.
+   *
+   * A save is everything needed to resume: the wallet's coins, the collection,
+   * the per-run counters, the lifetime totals the chest price derives from,
+   * and the partly-elapsed income tick.
+   */
+  toJSON() {
+    return {
+      coins: this.coins,
+      baseChestCost: this.baseChestCost,
+      incomeInterval: this.incomeInterval,
+      prestige: this.prestige,
+      prestigeCount: this.prestigeCount,
+      cards: [...this.cards.values()].map((card) => card.toJSON()),
+      chestsBought: this.chestsBought,
+      chestsOpened: this.chestsOpened,
+      uniqueCards: this.uniqueCards,
+      coinsEarned: this.coinsEarned,
+      coinsSpent: this.coinsSpent,
+      incomeAccumulator: this._incomeAccumulator,
+      stats: { ...this._stats },
+    };
+  }
+
+  /**
+   * Restore a save produced by `toJSON()`.
+   *
+   * Every field is optional so a save written by an older build still loads:
+   * a missing value falls back to the same default the constructor uses.
+   *
+   * @param {object} data
+   */
+  static fromJSON(data = {}) {
+    const economy = new CardCollectionEconomy({
+      coins: data.coins,
+      chestCost: data.baseChestCost,
+      incomeInterval: data.incomeInterval,
+      prestige: data.prestige,
+      prestigeCount: data.prestigeCount,
+    });
+    for (const card of data.cards ?? []) {
+      economy.cards.set(card.name, CardInstance.fromJSON(card));
+    }
+    economy.chestsBought = data.chestsBought ?? 0;
+    economy.chestsOpened = data.chestsOpened ?? 0;
+    economy.uniqueCards = data.uniqueCards ?? economy.cards.size;
+    economy.coinsEarned = data.coinsEarned ?? 0;
+    economy.coinsSpent = data.coinsSpent ?? 0;
+    economy._incomeAccumulator = data.incomeAccumulator ?? 0;
+    economy._stats = {
+      totalIncome: data.stats?.totalIncome ?? 0,
+      totalDraws: data.stats?.totalDraws ?? 0,
+      totalNewCards: data.stats?.totalNewCards ?? 0,
+    };
+    return economy;
   }
 }

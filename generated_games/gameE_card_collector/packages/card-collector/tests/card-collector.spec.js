@@ -341,6 +341,34 @@ describe('CardCollectionEconomy', () => {
     expect(eco.getState().totalIncome).toBe(0);
     expect(eco.currentChestCost()).toBe(ECONOMY.CHEST_COST);
   });
+
+  it('round-trips through JSON without losing state', () => {
+    const eco = new CardCollectionEconomy({ prestigeCount: 3 });
+    eco.applyDraw('Slime', RARITY.COMMON);
+    eco.applyDraw('Slime', RARITY.COMMON);
+    eco.applyDraw('Elder Wyrm', RARITY.LEGENDARY);
+    // A partly-elapsed income tick must survive too, or a reload could mint
+    // income the player never earned (or drop income they did).
+    eco.update(ECONOMY.INCOME_INTERVAL + 0.4);
+
+    const restored = CardCollectionEconomy.fromJSON(
+      JSON.parse(JSON.stringify(eco.toJSON())),
+    );
+
+    expect(restored.getState()).toEqual(eco.getState());
+    expect(restored.cards.get('Slime').copies).toBe(2);
+    // The cap travels with the card, so a later prestige cannot lift it.
+    expect(restored.cards.get('Slime').maxLevel).toBe(maxLevelAt(3));
+  });
+
+  it('loads a save written by an older build', () => {
+    // Absent fields fall back to constructor defaults rather than throwing,
+    // so a save from before a field existed still opens.
+    const restored = CardCollectionEconomy.fromJSON({ coins: 42 });
+    expect(restored.coins).toBe(42);
+    expect(restored.cards.size).toBe(0);
+    expect(restored.getState().chestCost).toBe(ECONOMY.CHEST_COST);
+  });
 });
 
 describe('CardInstance', () => {
