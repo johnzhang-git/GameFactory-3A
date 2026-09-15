@@ -39,7 +39,24 @@ contract CardCollector is ERC1155, EIP712, Ownable {
         uint256 nonce
     );
 
-    /// @notice The address whose vouchers this contract accepts.
+    /**
+     * @notice The address whose vouchers this contract accepts.
+     *
+     * Deliberately `immutable`, which is a trade-off worth stating rather than
+     * leaving as an accident of the type:
+     *
+     * - **For**: the signer is the entire trust model. If an owner could
+     *   redirect it, a compromised owner key would authorise unlimited
+     *   minting — and this contract has no other privileged action that
+     *   matters, so that would be the whole risk surface.
+     * - **Against**: a leaked signer key cannot be rotated. The only remedy is
+     *   deploying a new contract, and there is no migration path for cards
+     *   already minted here.
+     *
+     * The trade was made toward "smaller attack surface"; see AUDIT.md F-1.
+     * If response capability matters more, add `setSigner onlyOwner` and
+     * accept that the owner key then becomes the crown jewel.
+     */
     address public immutable signer;
 
     /**

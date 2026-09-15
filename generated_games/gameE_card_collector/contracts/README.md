@@ -82,12 +82,25 @@ struct Voucher {
 - 跨合约部署复用（域分隔）
 - 跨链复用
 
-## 测试分两层，缺一不可
+## 测试分四层
 
 | 层 | 文件 | 证明什么 |
 |---|---|---|
 | 合约单元 | `test/CardCollector.cjs` | 合约自身的规则与攻击防护 |
 | **跨边界** | `test/VoucherIntegration.cjs` | **服务端签的凭证，真实合约接受** |
+| 重入 | `test/Reentrancy.cjs` + `test/ReentrantClaimer.sol` | 用**真实恶意接收方合约**验证 `_mint` 回调窗口不可利用 |
+| 不变量 | `test/Invariants.cjs` | 总量守恒、卡牌独立、高水位行为 |
+
+后者不是「没发现问题」，而是把性质**固定住**。其中
+`documents that transfers strand the claimed high-water mark` 主动暴露了一个
+设计张力，详见 [AUDIT.md](./AUDIT.md) F-2。
+
+## 安全审查
+
+**[AUDIT.md](./AUDIT.md)** —— 作者自查（Slither + 对抗性测试）。
+
+> **它不是审计报告。** 独立审计的价值在于审查者不是写代码的人；同一个人的盲区不会
+> 因为多跑几个工具而消失。该文档应作为交给专业审计方的输入，**不是上线的凭证**。
 
 第二层是最容易漏掉的。合约测试用 ethers 自己签名，服务端测试只验证自己签名自洽——
 **两者都通过，服务端仍可能签出每一张都被链上拒绝的凭证**，只要 EIP-712 域
