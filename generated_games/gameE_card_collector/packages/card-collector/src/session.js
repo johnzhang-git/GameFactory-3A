@@ -23,6 +23,7 @@ import {
   connectAndSignIn,
   connectWallet,
   ensureChain,
+  nextNonce,
   sendTransaction,
   WalletError,
 } from './wallet.js';
@@ -312,10 +313,23 @@ export class ServerSession {
     // One prompt, before any transaction, rather than one per card.
     await ensure(issued.chainId);
 
+    /**
+     * Nonces are assigned here, not left to the node.
+     *
+     * Left implicit, the node reuses the first nonce for the second send —
+     * its "pending" count has not moved yet — so only the first card mints and
+     * the rest are rejected. Reading the pending count once and incrementing
+     * per voucher keeps them distinct.
+     */
+    let nonce = hooks.nextNonce
+      ? await hooks.nextNonce(this.address)
+      : await nextNonce(this.address);
+
     const claimed = [];
     for (const voucher of issued.vouchers) {
       try {
-        const hash = await send(voucher.transaction, this.address);
+        const hash = await send(voucher.transaction, this.address, nonce);
+        nonce += 1;
         await this.api.reportClaimed(voucher.tokenId, voucher.amount);
         claimed.push({
           name: voucher.card.name,
@@ -341,4 +355,10 @@ export class ServerSession {
   }
 }
 
-export { connectAndSignIn, connectWallet, ensureChain, sendTransaction };
+export {
+  connectAndSignIn,
+  connectWallet,
+  ensureChain,
+  nextNonce,
+  sendTransaction,
+};

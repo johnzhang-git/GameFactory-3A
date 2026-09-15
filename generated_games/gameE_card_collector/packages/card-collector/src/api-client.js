@@ -102,11 +102,27 @@ export class GameApiClient {
       throw new GameApiError(0, 'cannot reach the game server');
     }
 
+    const text = await res.text();
     let payload = null;
-    try {
-      payload = await res.json();
-    } catch {
-      payload = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        /**
+         * A non-JSON body on a successful response means the request never
+         * reached the API — typically a dev server answering a path it does
+         * not proxy with `index.html` and a 200.
+         *
+         * Swallowing this into `null` makes the feature silently do nothing,
+         * which is far harder to diagnose than a thrown error. Say what
+         * actually happened instead.
+         */
+        throw new GameApiError(
+          res.status,
+          `${path} returned ${res.status} but not JSON ` +
+            `(did the dev server proxy this path?)`,
+        );
+      }
     }
 
     if (!res.ok) {

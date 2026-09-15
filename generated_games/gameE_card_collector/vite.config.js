@@ -17,9 +17,16 @@ const server = {
 // absolute API URL in the client instead would bake a host into the bundle and
 // lose same-origin cookie/CORS behaviour in production.
 const apiTarget = process.env.A3GAME_API_URL ?? 'http://127.0.0.1:8787';
+/**
+ * Every server-owned prefix must be listed. A prefix that is missed does not
+ * fail loudly: the dev server answers it with index.html and a 200, so the
+ * client gets HTML where it expected JSON and the feature silently does
+ * nothing. That is exactly what `/chain` did when claiming was added.
+ */
 const proxy = {
   '/auth': { target: apiTarget, changeOrigin: true },
   '/game': { target: apiTarget, changeOrigin: true },
+  '/chain': { target: apiTarget, changeOrigin: true },
 };
 
 export default defineConfig({

@@ -334,6 +334,22 @@ describe('ServerSession', () => {
       };
     }
 
+    /**
+     * Hooks for `claimAll`, with the wallet stubbed out.
+     *
+     * `nextNonce` is always supplied: without it `claimAll` falls through to
+     * the real implementation, which talks to an injected provider the tests
+     * do not have.
+     */
+    function walletHooks({ onSend, nonce = 0 } = {}) {
+      return {
+        ensureChain: async () => true,
+        nextNonce: async () => nonce,
+        sendTransaction: async (tx, from, n) =>
+          onSend ? onSend(tx, from, n) : '0xhash',
+      };
+    }
+
     /** A session whose server offers `count` vouchers. */
     function claimSession(count, extraRoutes = {}) {
       const sent = [];
@@ -371,13 +387,14 @@ describe('ServerSession', () => {
       });
       const sent = [];
 
-      const outcome = await session.claimAll({
-        ensureChain: async () => true,
-        sendTransaction: async (tx) => {
-          sent.push(tx.data);
-          return `0xhash${sent.length}`;
-        },
-      });
+      const outcome = await session.claimAll(
+        walletHooks({
+          onSend: async (tx) => {
+            sent.push(tx.data);
+            return `0xhash${sent.length}`;
+          },
+        }),
+      );
 
       expect(outcome.failed).toBeNull();
       expect(sent).toEqual(['0xdata0', '0xdata1']);
@@ -389,6 +406,29 @@ describe('ServerSession', () => {
       ]);
     });
 
+    it('assigns a distinct, increasing nonce to each transaction', async () => {
+      // Regression guard. Left to the node, every send in a batch reused the
+      // first nonce — the node's pending count had not moved yet — so only the
+      // first card minted and the rest were rejected with "nonce has already
+      // been used". Observed on a real chain, not theorised.
+      const { session } = claimSession(3);
+      const nonces = [];
+
+      const outcome = await session.claimAll(
+        walletHooks({
+          nonce: 7,
+          onSend: async (_tx, _from, nonce) => {
+            nonces.push(nonce);
+            return `0xhash${nonces.length}`;
+          },
+        }),
+      );
+
+      expect(outcome.failed).toBeNull();
+      expect(nonces).toEqual([7, 8, 9]);
+      expect(new Set(nonces).size).toBe(nonces.length);
+    });
+
     it('switches chain before sending anything', async () => {
       // Ordering matters: a transaction on the wrong chain would either fail
       // or, worse, hit a same-address contract on another network.
@@ -396,6 +436,7 @@ describe('ServerSession', () => {
       const order = [];
 
       await session.claimAll({
+        ...walletHooks(),
         ensureChain: async (chainId) => {
           order.push(`chain:${chainId}`);
           return true;
@@ -413,14 +454,17 @@ describe('ServerSession', () => {
       const { session } = claimSession(3);
       let attempts = 0;
 
-      const outcome = await session.claimAll({
-        ensureChain: async () => true,
-        sendTransaction: async () => {
-          attempts += 1;
-          if (attempts === 2) throw new Error('Request declined in your wallet.');
-          return '0xhash';
-        },
-      });
+      const outcome = await session.claimAll(
+        walletHooks({
+          onSend: async () => {
+            attempts += 1;
+            if (attempts === 2) {
+              throw new Error('Request declined in your wallet.');
+            }
+            return '0xhash';
+          },
+        }),
+      );
 
       // The first card minted, the second was declined, and the third was
       // never attempted — prompting again after a refusal is user-hostile.
@@ -435,6 +479,7 @@ describe('ServerSession', () => {
       let prompted = false;
 
       const outcome = await session.claimAll({
+        ...walletHooks(),
         ensureChain: async () => {
           prompted = true;
           return true;

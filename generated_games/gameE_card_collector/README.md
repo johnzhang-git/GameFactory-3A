@@ -37,14 +37,24 @@ gameE_card_collector/
 ├── mechanic_contract.json       # 公共 Mechanic 契约（state / events / commands）
 ├── context_used.json            # 使用的上下文记录
 ├── DESIGN.md                    # 经济设计：成本曲线与转生方案 + §7 数值校准实测
+├── docs/web3-integration.md     # Web3 方案：惰性铸造 + ERC-1155，含成本明细
+├── server/                      # 后端：钱包登录 + 存档 + 服务端裁决抽卡
+├── contracts/                   # ERC-1155 合约 + EIP-712 凭证（真实 EVM 测试）
 ├── tools/
-│   └── balance-sim.mjs          # 经济平衡模拟器（含与真实规则的逐帧一致性校验）
+│   ├── balance-sim.mjs          # 经济平衡模拟器（含与真实规则的逐帧一致性校验）
+│   ├── browser-check.mjs        # 浏览器端到端：连接 → 抽卡 → 刷新恢复
+│   ├── claim-browser-check.mjs  # 浏览器端到端：链上领取
+│   └── chain-e2e.mjs            # 链上端到端：部署 → 签发 → 铸造 → 对账
 └── packages/card-collector/     # 生成的 gameplay 包
     ├── package.json
     ├── src/
-    │   ├── catalog.js           # 卡牌目录、稀有度权重、收入公式、种子随机
-    │   ├── economy.js           # 金币、宝箱商店、被动收入计时
-    │   ├── game.js              # 规则编排：买 / 开 / 产币 + 订阅式状态
+    │   ├── catalog.js           # 卡牌目录、稀有度权重、收入公式、种子随机、tokenId 映射
+    │   ├── economy.js           # 金币、宝箱商店、被动收入计时、存档序列化
+    │   ├── game.js              # 规则编排：买 / 开 / 产币 + 可区分事件
+    │   ├── rules.js             # headless 入口（服务端用，不拖入 three.js）
+    │   ├── api-client.js        # 后端 HTTP 客户端
+    │   ├── wallet.js            # 钱包连接、SIWE 签名、切链、发交易
+    │   ├── session.js           # 本地 / 服务端双模式会话
     │   ├── renderer.js          # 3D 展台（宝箱弹跳 + 卡牌墙）
     │   └── index.js             # 启动、HUD、按键 / 按钮输入
     └── tests/

@@ -232,11 +232,19 @@ export async function ensureChain(chainId, meta = {}) {
  * client does not build or inspect the calldata. `from` is set explicitly so
  * the request is unambiguous when the wallet holds several accounts.
  *
+ * `nonce` is passed explicitly when the caller is sending several
+ * transactions in a row. Without it, the node derives each nonce from its own
+ * view of the account, which still reads "pending count" after the previous
+ * transaction has been mined — so the second call reuses the first nonce and
+ * is rejected. Claiming several cards is exactly that case: the first mint
+ * succeeds and the rest fail with "nonce has already been used".
+ *
  * @param {{to: string, data: string, value?: string}} transaction
  * @param {string} from
+ * @param {number} [nonce] explicit nonce, for consecutive sends
  * @returns {Promise<string>} the transaction hash
  */
-export async function sendTransaction(transaction, from) {
+export async function sendTransaction(transaction, from, nonce) {
   const provider = requireProvider();
   try {
     return await provider.request({
@@ -247,10 +255,26 @@ export async function sendTransaction(transaction, from) {
           to: transaction.to,
           data: transaction.data,
           value: transaction.value ?? '0x0',
+          ...(nonce === undefined ? {} : { nonce: `0x${nonce.toString(16)}` }),
         },
       ],
     });
   } catch (cause) {
     throw toWalletError(cause);
   }
+}
+
+/**
+ * The account's next nonce, counting pending transactions.
+ *
+ * @param {string} address
+ * @returns {Promise<number>}
+ */
+export async function nextNonce(address) {
+  const provider = requireProvider();
+  const hex = await provider.request({
+    method: 'eth_getTransactionCount',
+    params: [address, 'pending'],
+  });
+  return Number.parseInt(hex, 16);
 }

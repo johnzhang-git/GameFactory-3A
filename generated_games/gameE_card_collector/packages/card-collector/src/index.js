@@ -252,15 +252,23 @@ export async function startCardCollector(options = {}) {
     sync(session, hud, renderer, buttons, wallet, chain);
   let unsubscribe = session.onChange(rerender);
 
-  /** Swap the active session, rewiring the subscription. */
-  function useSession(next) {
-    unsubscribe();
-    session = next;
-    unsubscribe = session.onChange(rerender);
-    rerender();
-  }
+  /**
+   * How many draws have happened, so a claim refresh can be driven by real
+   * progress rather than by a timer.
+   */
+  let drawsWhenLastRefreshed = -1;
 
-  /** Refresh how much is left to mint. Silently no-ops without a session. */
+  /**
+   * Refresh how much is left to mint.
+   *
+   * Opening a chest adds copies that are immediately claimable, so the count
+   * has to be re-read as the player plays — reading it once at connect time
+   * leaves the button stuck on whatever was claimable then.
+   *
+   * Reads are coalesced: `refreshClaimable` may be called on every state
+   * change, but only one request is in flight at a time.
+   */
+  let refreshing = null;
   async function refreshClaimable() {
     if (!session.claimable) {
       chain.claimable = 0;
@@ -268,18 +276,53 @@ export async function startCardCollector(options = {}) {
       rerender();
       return;
     }
-    try {
-      const info = await session.claimable();
-      chain.available = info.available;
-      chain.reason = info.reason;
-      chain.claimable = (info.cards ?? []).reduce(
-        (sum, card) => sum + card.claimable,
-        0,
-      );
-    } catch {
-      // A failed poll must not break rendering; the button simply stays put.
-      chain.claimable = 0;
+    if (refreshing) return refreshing;
+
+    refreshing = (async () => {
+      try {
+        const info = await session.claimable();
+        chain.available = info.available;
+        chain.reason = info.reason;
+        chain.claimable = (info.cards ?? []).reduce(
+          (sum, card) => sum + card.claimable,
+          0,
+        );
+        drawsWhenLastRefreshed = session.getState().economy.chestsOpened;
+      } catch {
+        // A failed poll must not break rendering; the button simply stays put.
+        chain.claimable = 0;
+      } finally {
+        refreshing = null;
+      }
+    })();
+
+    await refreshing;
+    rerender();
+  }
+
+  /**
+   * Re-read the claimable count when the number of opened chests has moved.
+   *
+   * Cheap to call on every change: it only issues a request when a draw has
+   * actually happened since the last read.
+   */
+  function maybeRefreshClaimable() {
+    if (!session.claimable) return;
+    if (session.getState().economy.chestsOpened === drawsWhenLastRefreshed) {
+      return;
     }
+    refreshClaimable();
+  }
+
+  /** Swap the active session, rewiring the subscription. */
+  function useSession(next) {
+    unsubscribe();
+    session = next;
+    drawsWhenLastRefreshed = -1;
+    unsubscribe = session.onChange(() => {
+      rerender();
+      maybeRefreshClaimable();
+    });
     rerender();
   }
 
